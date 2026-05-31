@@ -1,0 +1,15 @@
+[project]
+name = "repair-buddy-backend"
+version = "0.1.0"
+description = "Backend for repair-buddy mechanic assistant"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "qdrant-client",
+    "langchain",
+    "langgraph",
+    "pydantic-settings",
+    "httpx",
+]
