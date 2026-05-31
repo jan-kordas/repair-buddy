@@ -13,13 +13,21 @@ AI diagnostic assistant for car mechanics. Supports Skoda Octavia I and VW Golf 
 - Docker + Docker Compose
 - Ollama running locally on port `11434`
 
-## Run
+## Setup
+
+Pull the embedding model:
+
+```bash
+ollama pull qwen3-embedding:0.6b
+```
+
+Run the stack:
 
 ```bash
 docker compose up --build
 ```
 
-API available at `http://localhost:8000`
+API available at `http://localhost:8000`.
 
 ## Endpoints
 
