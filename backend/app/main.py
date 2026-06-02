@@ -1,15 +1,15 @@
-import httpx
 from contextlib import asynccontextmanager
+
+import httpx
 from fastapi import FastAPI
 from qdrant_client import QdrantClient
+
 from app.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.qdrant = QdrantClient(
-        host=settings.qdrant_host, port=settings.qdrant_port
-    )
+    app.state.qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
     yield
     app.state.qdrant.close()
 
@@ -35,9 +35,7 @@ def qdrant_health():
 async def ollama_health():
     try:
         async with httpx.AsyncClient() as http_client:
-            await http_client.get(
-                f"http://{settings.ollama_host}:{settings.ollama_port}/api/tags"
-            )
+            await http_client.get(f"http://{settings.ollama_host}:{settings.ollama_port}/api/tags")
             return {"status": "ok"}
     except Exception:
         return {"status": "unavailable"}
