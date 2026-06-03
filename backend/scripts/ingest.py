@@ -1,5 +1,5 @@
+import hashlib
 import logging
-import uuid
 from pathlib import Path
 
 import fitz  # pymupdf
@@ -70,19 +70,19 @@ def split_into_chunks(text: str) -> list[str]:
 
 
 def chunks_from_pdf(pdf_path: Path) -> list[dict]:
-    document = fitz.open(pdf_path)
-    metadata = detect_car_metadata(pdf_path.name)
+    with fitz.open(pdf_path) as document:
+        metadata = detect_car_metadata(pdf_path.name)
 
-    chunks = []
-    for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
-        page_text = read_page_text(page)
-        for chunk in split_into_chunks(page_text):
-            chunks.append({
-                "text": chunk,
-                "source": pdf_path.name,
-                "page": page_index,
-                **metadata,
-            })
+        chunks = []
+        for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
+            page_text = read_page_text(page)
+            for chunk in split_into_chunks(page_text):
+                chunks.append({
+                    "text": chunk,
+                    "source": pdf_path.name,
+                    "page": page_index,
+                    **metadata,
+                })
     return chunks
 
 
@@ -107,14 +107,22 @@ def recreate_collection(qdrant: QdrantClient, vector_size: int) -> None:
     )
 
 
+def chunk_id(source: str, page: int, index: int) -> str:
+    return hashlib.md5(f"{source}_{page}_{index}".encode()).hexdigest()
+
+
 def upload_to_qdrant(
     qdrant: QdrantClient,
     chunks: list[dict],
     embeddings: list[list[float]],
 ) -> None:
     points = []
-    for chunk, embedding in zip(chunks, embeddings):
-        points.append(PointStruct(id=str(uuid.uuid4()), vector=embedding, payload=chunk))
+    for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        points.append(PointStruct(
+            id=chunk_id(chunk["source"], chunk["page"], index),
+            vector=embedding,
+            payload=chunk,
+        ))
     qdrant.upsert(collection_name=COLLECTION, points=points)
 
 
