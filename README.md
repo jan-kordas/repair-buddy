@@ -27,6 +27,12 @@ Run the stack:
 docker compose up --build
 ```
 
+Ingest PDF manuals (required on first run):
+
+```bash
+uv run python scripts/ingest.py
+```
+
 API available at `http://localhost:8000`.
 
 ## Endpoints
@@ -68,4 +74,3 @@ uv run python scripts/ingest.py --force   # reprocess everything
 ```
 
 Progress is tracked in `data/processed/*.checkpoint.json`. The script is resumable - if interrupted, the next run continues from where it stopped. Point IDs in Qdrant are deterministic per `(source, page, chunk_index)`, so re-runs overwrite instead of duplicating.
-
