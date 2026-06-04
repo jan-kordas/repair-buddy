@@ -27,6 +27,12 @@ Run the stack:
 docker compose up --build
 ```
 
+Ingest PDF manuals (required on first run):
+
+```bash
+uv run python scripts/ingest.py
+```
+
 API available at `http://localhost:8000`.
 
 ## Endpoints
@@ -43,4 +49,25 @@ API available at `http://localhost:8000`.
 cd backend
 uv sync
 uv run uvicorn app.main:app --reload
+```
+
+Code style is enforced with ruff. After `uv sync` run:
+
+```bash
+uv run ruff check .
+uv run ruff format .
+```
+
+### Data ingestion
+
+Requires Tesseract for scanned PDFs:
+
+```bash
+brew install tesseract
+```
+
+Place PDF manuals in `data/raw/` and run:
+
+```bash
+uv run python scripts/ingest.py
 ```
