@@ -9,20 +9,53 @@ services:
         target: /qdrant/config/production.yaml
     volumes:
       - ./qdrant_data:/qdrant/storage
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-repair_buddy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-repair_buddy_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-repair_buddy}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-repair_buddy} -d ${POSTGRES_DB:-repair_buddy}
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: ./backend
     container_name: backend
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
       - OLLAMA_HOST=host.docker.internal
-      - OLLAMA_PORT=11434
+      - POSTGRES_HOST=postgres
     depends_on:
       - qdrant
+      - postgres
+
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
 
 configs:
   qdrant_config:
     content: |
       log_level: INFO
+
+volumes:
+  postgres_data:

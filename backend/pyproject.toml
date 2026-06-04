@@ -13,6 +13,10 @@ dependencies = [
     "httpx",
     "pymupdf",
     "tqdm",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "psycopg[binary]",
+    "alembic"
 ]
 
 [dependency-groups]
