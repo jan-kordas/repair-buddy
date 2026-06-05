@@ -77,12 +77,14 @@ def chunks_from_pdf(pdf_path: Path) -> list[dict]:
         for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
             page_text = read_page_text(page)
             for chunk in split_into_chunks(page_text):
-                chunks.append({
-                    "text": chunk,
-                    "source": pdf_path.name,
-                    "page": page_index,
-                    **metadata,
-                })
+                chunks.append(
+                    {
+                        "text": chunk,
+                        "source": pdf_path.name,
+                        "page": page_index,
+                        **metadata,
+                    }
+                )
     return chunks
 
 
@@ -118,11 +120,13 @@ def upload_to_qdrant(
 ) -> None:
     points = []
     for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        points.append(PointStruct(
-            id=chunk_id(chunk["source"], chunk["page"], index),
-            vector=embedding,
-            payload=chunk,
-        ))
+        points.append(
+            PointStruct(
+                id=chunk_id(chunk["source"], chunk["page"], index),
+                vector=embedding,
+                payload=chunk,
+            )
+        )
     qdrant.upsert(collection_name=COLLECTION, points=points)
 
 
