@@ -16,10 +16,11 @@ AI diagnostic assistant for car mechanics. Supports Skoda Octavia I and VW Golf 
 
 ## Setup
 
-Pull the embedding model:
+Pull the models:
 
 ```bash
-ollama pull qwen3-embedding:0.6b
+ollama pull qwen3-embedding:0.6b   # for embeddings (ingestion + queries)
+ollama pull qwen3:8b               # for chat answers
 ```
 
 Run the stack:
@@ -51,6 +52,7 @@ API available at `http://localhost:8000`. Adminer (DB browser) at `http://localh
 | GET | `/health/qdrant` | Qdrant status |
 | GET | `/health/ollama` | Ollama status |
 | GET | `/health/postgres` | Postgres status |
+| POST | `/chat` | ask a question, get RAG answer with sources |
 
 ## Local development
 

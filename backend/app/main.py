@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
+from app.routers import chat
 
 
 @asynccontextmanager
@@ -18,7 +19,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="repair-buddy", lifespan=lifespan)
-
+app.include_router(chat.router)
 
 @app.get("/health")
 def health():

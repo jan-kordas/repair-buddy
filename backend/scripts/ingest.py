@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from os.path import commonprefix
 from pathlib import Path
 
 import fitz  # pymupdf
@@ -22,6 +23,9 @@ CHUNK_OVERLAP = 50
 MIN_CHUNK_WORDS = 10
 OCR_THRESHOLD = 50
 EMBED_BATCH = 32
+WATERMARK_MIN_LENGTH = 30
+WATERMARK_SAMPLE_PAGES = 5
+WATERMARK_SAMPLE_CHARS = 500
 OLLAMA_URL = f"http://{settings.ollama_host}:{settings.ollama_port}/api/embed"
 
 
@@ -37,6 +41,20 @@ def read_page_text(page: fitz.Page) -> str:
         raise RuntimeError(
             "OCR failed - is Tesseract installed? (`brew install tesseract`)"
         ) from error
+
+
+def find_common_prefix(document: fitz.Document) -> str:
+    samples = []
+    for page in document:
+        text = page.get_text().strip()
+        if text:
+            samples.append(text[:WATERMARK_SAMPLE_CHARS])
+
+    if len(samples) < WATERMARK_SAMPLE_PAGES:
+        return ""
+
+    common = commonprefix(samples)
+    return common if len(common) >= WATERMARK_MIN_LENGTH else ""
 
 
 def detect_car_metadata(filename: str) -> dict:
@@ -72,10 +90,15 @@ def split_into_chunks(text: str) -> list[str]:
 def chunks_from_pdf(pdf_path: Path) -> list[dict]:
     with fitz.open(pdf_path) as document:
         metadata = detect_car_metadata(pdf_path.name)
+        watermark = find_common_prefix(document)
+        if watermark:
+            log.info(f"Detected watermark ({len(watermark)} chars), stripping from each page")
 
         chunks = []
         for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
             page_text = read_page_text(page)
+            if watermark and page_text.startswith(watermark):
+                page_text = page_text[len(watermark):].strip()
             for chunk in split_into_chunks(page_text):
                 chunks.append(
                     {
