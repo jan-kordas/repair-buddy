@@ -36,11 +36,14 @@ cd backend
 uv run alembic upgrade head
 ```
 
-Ingest PDF manuals (required on first run):
+Ingest data into the vector DB (required on first run, and after adding new sources):
 
 ```bash
+cd backend
 uv run python scripts/ingest.py
 ```
+
+This rebuilds the entire Qdrant collection from scratch each time — PDF manuals from `data/raw/` and forum threads from `elektroda_scraper/output/threads.jsonl`.
 
 API available at `http://localhost:8000`. Adminer (DB browser) at `http://localhost:8080`.
 
@@ -86,14 +89,29 @@ uv run alembic downgrade -1
 
 ### Data ingestion
 
+`scripts/ingest.py` rebuilds the full Qdrant collection from two sources:
+
+| Source | Location | Format |
+|--------|----------|--------|
+| PDF repair manuals | `data/raw/*.pdf` | chunked by page (512 words, 50 overlap) |
+| Elektroda forum threads | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix |
+
 Requires Tesseract for scanned PDFs:
 
 ```bash
 brew install tesseract
 ```
 
-Place PDF manuals in `data/raw/` and run:
+To scrape forum threads, add URLs to `elektroda_scraper/urls.txt` and run:
 
 ```bash
+cd elektroda_scraper
+uv run python main.py urls.txt
+```
+
+Then rebuild the vector DB:
+
+```bash
+cd backend
 uv run python scripts/ingest.py
 ```

@@ -12,6 +12,7 @@ class Thread(BaseModel):
     id: str
     title: str
     url: str
-    category: str
+    car_make: str | None = None
+    car_models: list[str] | None = None
     posts: list[Post] = []
     ai_summary: str = ""

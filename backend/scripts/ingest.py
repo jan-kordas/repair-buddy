@@ -1,4 +1,5 @@
 import hashlib
+import json
 import logging
 from os.path import commonprefix
 from pathlib import Path
@@ -16,7 +17,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
-COLLECTION = "repair_manuals"
+JSONL_PATH = Path(__file__).resolve().parents[2] / "elektroda_scraper" / "output" / "threads.jsonl"
+COLLECTION_PDF   = "repair_manuals"
+COLLECTION_FORUM = "forum_posts"
 EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 50
@@ -29,85 +32,16 @@ WATERMARK_SAMPLE_CHARS = 500
 OLLAMA_URL = f"http://{settings.ollama_host}:{settings.ollama_port}/api/embed"
 
 
-def read_page_text(page: fitz.Page) -> str:
-    text = page.get_text().strip()
-    if len(text) >= OCR_THRESHOLD:
-        return text
-
-    try:
-        ocr_result = page.get_textpage_ocr(language="eng")
-        return page.get_text(textpage=ocr_result).strip()
-    except RuntimeError as error:
-        raise RuntimeError(
-            "OCR failed - is Tesseract installed? (`brew install tesseract`)"
-        ) from error
-
-
-def find_common_prefix(document: fitz.Document) -> str:
-    samples = []
-    for page in document:
-        text = page.get_text().strip()
-        if text:
-            samples.append(text[:WATERMARK_SAMPLE_CHARS])
-
-    if len(samples) < WATERMARK_SAMPLE_PAGES:
-        return ""
-
-    common = commonprefix(samples)
-    return common if len(common) >= WATERMARK_MIN_LENGTH else ""
-
-
-def detect_car_metadata(filename: str) -> dict:
-    name = filename.lower()
-
-    car_make = None
-    if "skoda" in name:
-        car_make = "skoda"
-    elif "volkswagen" in name or "vw" in name:
-        car_make = "volkswagen"
-
-    car_models = []
-    if "octavia" in name:
-        car_models.append("octavia")
-    if "golf" in name:
-        car_models.append("golf")
-
-    return {"car_make": car_make, "car_models": car_models or None}
-
+# --- shared ---
 
 def split_into_chunks(text: str) -> list[str]:
     words = text.split()
     step = CHUNK_SIZE - CHUNK_OVERLAP
-
     chunks = []
     for start in range(0, len(words), step):
         chunk = " ".join(words[start : start + CHUNK_SIZE])
         if len(chunk.split()) >= MIN_CHUNK_WORDS:
             chunks.append(chunk)
-    return chunks
-
-
-def chunks_from_pdf(pdf_path: Path) -> list[dict]:
-    with fitz.open(pdf_path) as document:
-        metadata = detect_car_metadata(pdf_path.name)
-        watermark = find_common_prefix(document)
-        if watermark:
-            log.info(f"Detected watermark ({len(watermark)} chars), stripping from each page")
-
-        chunks = []
-        for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
-            page_text = read_page_text(page)
-            if watermark and page_text.startswith(watermark):
-                page_text = page_text[len(watermark):].strip()
-            for chunk in split_into_chunks(page_text):
-                chunks.append(
-                    {
-                        "text": chunk,
-                        "source": pdf_path.name,
-                        "page": page_index,
-                        **metadata,
-                    }
-                )
     return chunks
 
 
@@ -123,59 +57,176 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
     return embeddings
 
 
-def recreate_collection(qdrant: QdrantClient, vector_size: int) -> None:
-    if qdrant.collection_exists(COLLECTION):
-        qdrant.delete_collection(COLLECTION)
-    qdrant.create_collection(
-        collection_name=COLLECTION,
-        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-    )
-
-
 def chunk_id(source: str, page: int, index: int) -> str:
     return hashlib.md5(f"{source}_{page}_{index}".encode()).hexdigest()
 
 
-def upload_to_qdrant(
-    qdrant: QdrantClient,
-    chunks: list[dict],
-    embeddings: list[list[float]],
-) -> None:
-    points = []
-    for index, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        points.append(
-            PointStruct(
-                id=chunk_id(chunk["source"], chunk["page"], index),
-                vector=embedding,
-                payload=chunk,
-            )
-        )
-    qdrant.upsert(collection_name=COLLECTION, points=points)
+def recreate_collection(qdrant: QdrantClient, collection: str, vector_size: int) -> None:
+    if qdrant.collection_exists(collection):
+        qdrant.delete_collection(collection)
+    qdrant.create_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+    )
 
+
+def upload_to_qdrant(
+    qdrant: QdrantClient, collection: str, chunks: list[dict], embeddings: list[list[float]]
+) -> None:
+    points = [
+        PointStruct(
+            id=chunk_id(chunk["source"], chunk.get("page") or 0, i),
+            vector=embedding,
+            payload=chunk,
+        )
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+    ]
+    qdrant.upsert(collection_name=collection, points=points)
+    log.info("Upserted %d point(s) into '%s'.", len(points), collection)
+
+
+# --- PDF source ---
+
+def read_page_text(page: fitz.Page) -> str:
+    text = page.get_text().strip()
+    if len(text) >= OCR_THRESHOLD:
+        return text
+    try:
+        ocr_result = page.get_textpage_ocr(language="eng")
+        return page.get_text(textpage=ocr_result).strip()
+    except RuntimeError as error:
+        raise RuntimeError(
+            "OCR failed - is Tesseract installed? (`brew install tesseract`)"
+        ) from error
+
+
+def find_common_prefix(document: fitz.Document) -> str:
+    samples = []
+    for page in document:
+        text = page.get_text().strip()
+        if text:
+            samples.append(text[:WATERMARK_SAMPLE_CHARS])
+    if len(samples) < WATERMARK_SAMPLE_PAGES:
+        return ""
+    common = commonprefix(samples)
+    return common if len(common) >= WATERMARK_MIN_LENGTH else ""
+
+
+def detect_car_metadata(filename: str) -> dict:
+    name = filename.lower()
+    car_make = None
+    if "skoda" in name:
+        car_make = "skoda"
+    elif "volkswagen" in name or "vw" in name:
+        car_make = "volkswagen"
+    car_models = []
+    if "octavia" in name:
+        car_models.append("octavia")
+    if "golf" in name:
+        car_models.append("golf")
+    return {"car_make": car_make, "car_models": car_models or None}
+
+
+def chunks_from_pdf(pdf_path: Path) -> list[dict]:
+    with fitz.open(pdf_path) as document:
+        metadata = detect_car_metadata(pdf_path.name)
+        watermark = find_common_prefix(document)
+        if watermark:
+            log.info("Detected watermark (%d chars), stripping.", len(watermark))
+        chunks = []
+        for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
+            page_text = read_page_text(page)
+            if watermark and page_text.startswith(watermark):
+                page_text = page_text[len(watermark):].strip()
+            for chunk in split_into_chunks(page_text):
+                chunks.append(
+                    {"text": chunk, "source": pdf_path.name, "page": page_index, **metadata}
+                )
+    return chunks
+
+
+# --- forum source ---
+
+def load_threads(path: Path) -> list[dict]:
+    threads = []
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                threads.append(json.loads(line))
+    return threads
+
+
+def chunks_from_threads(threads: list[dict]) -> list[dict]:
+    chunks = []
+    skipped = 0
+    for thread in threads:
+        title = thread.get("title", "")
+        prefix = f"[{title}]\n" if title else ""
+        base_payload = {
+            "source": thread["url"],
+            "page": None,
+            "title": title,
+            "car_make": thread.get("car_make"),
+            "car_models": thread.get("car_models"),
+        }
+
+        summary = thread.get("ai_summary", "").strip()
+        if summary:
+            chunks.append({"text": prefix + summary, **base_payload})
+
+        posts_text = " ".join(
+            p["content"] for p in thread.get("posts", []) if p.get("content")
+        )
+        if not posts_text.strip():
+            skipped += 1
+            continue
+        for chunk_text in split_into_chunks(prefix + posts_text):
+            chunks.append({"text": chunk_text, **base_payload})
+
+    if skipped:
+        log.warning("Skipped %d thread(s) with no post content.", skipped)
+    return chunks
+
+
+# --- main ---
 
 def main() -> None:
     qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
-    qdrant.get_collections()
 
+    log.info("Getting vector size from test embedding...")
+    vector_size = len(generate_embeddings(["test"])[0])
+
+    recreate_collection(qdrant, COLLECTION_PDF, vector_size)
+    recreate_collection(qdrant, COLLECTION_FORUM, vector_size)
+    log.info("Collections recreated (vector size: %d).", vector_size)
+
+    # PDFs
     pdf_paths = sorted(RAW_DIR.glob("*.pdf"))
     if not pdf_paths:
-        log.warning("No PDFs found")
-        return
-
-    test_vector = generate_embeddings(["test"])[0]
-    recreate_collection(qdrant, vector_size=len(test_vector))
-
+        log.warning("No PDFs found in %s", RAW_DIR)
     for pdf_path in pdf_paths:
-        log.info(f"Reading {pdf_path.name}")
+        log.info("Reading %s", pdf_path.name)
         chunks = chunks_from_pdf(pdf_path)
         if not chunks:
             continue
+        log.info("Embedding %d chunks from %s", len(chunks), pdf_path.name)
+        embeddings = generate_embeddings([c["text"] for c in chunks])
+        upload_to_qdrant(qdrant, COLLECTION_PDF, chunks, embeddings)
 
-        log.info(f"Embedding {len(chunks)} chunks from {pdf_path.name}")
-        embeddings = generate_embeddings([chunk["text"] for chunk in chunks])
-        upload_to_qdrant(qdrant, chunks, embeddings)
+    # Forum threads
+    if not JSONL_PATH.exists():
+        log.warning("Elektroda JSONL not found at %s — skipping.", JSONL_PATH)
+    else:
+        threads = load_threads(JSONL_PATH)
+        log.info("Loaded %d thread(s) from elektroda.", len(threads))
+        chunks = chunks_from_threads(threads)
+        log.info("Embedding %d chunks from forum threads.", len(chunks))
+        if chunks:
+            embeddings = generate_embeddings([c["text"] for c in chunks])
+            upload_to_qdrant(qdrant, COLLECTION_FORUM, chunks, embeddings)
 
-    log.info("Done")
+    log.info("Done.")
 
 
 if __name__ == "__main__":

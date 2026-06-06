@@ -16,7 +16,9 @@ dependencies = [
     "sqlalchemy[asyncio]",
     "asyncpg",
     "psycopg[binary]",
-    "alembic"
+    "alembic",
+    "beautifulsoup4>=4.14.3",
+    "requests>=2.34.2",
 ]
 
 [dependency-groups]

@@ -5,7 +5,8 @@ from app.config import settings
 
 EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 CHAT_MODEL = "qwen3:8b"
-COLLECTION = "repair_manuals"
+COLLECTION_PDF   = "repair_manuals"
+COLLECTION_FORUM = "forum_posts"
 TOP_K = 5
 SNIPPET_LENGTH = 200
 
@@ -13,11 +14,13 @@ OLLAMA_BASE = f"http://{settings.ollama_host}:{settings.ollama_port}"
 
 SYSTEM_PROMPT = (
     "You are an assistant for car mechanics. "
-    "Answer using ONLY the provided context from repair manuals. "
+    "You will receive context from two types of sources: "
+    "official repair manuals (precise, authoritative) "
+    "and forum discussions (real-world user experience). "
+    "Answer using ONLY the provided context. "
     "If the context does not contain the answer, say so clearly. "
     "Be concise and technical. Use markdown formatting (bold, lists) when helpful. "
-    "Do not mention page numbers, source files, or references to the manual - "
-    "the system already shows sources separately. "
+    "Do not reference source labels or filenames — the system shows sources separately. "
     "Respond in the same language the user used in their question."
 )
 
@@ -33,21 +36,26 @@ async def embed_question(question: str, client: httpx.AsyncClient) -> list[float
 
 
 def search_context(qdrant: QdrantClient, vector: list[float]) -> list[dict]:
-    results = qdrant.query_points(
-        collection_name=COLLECTION,
-        query=vector,
-        limit=TOP_K,
-        with_payload=True,
-    )
-    return [point.payload for point in results.points]
+    pdf_hits = qdrant.query_points(
+        collection_name=COLLECTION_PDF, query=vector, limit=TOP_K, with_payload=True
+    ).points
+    forum_hits = qdrant.query_points(
+        collection_name=COLLECTION_FORUM, query=vector, limit=TOP_K, with_payload=True
+    ).points
+    merged = sorted(pdf_hits + forum_hits, key=lambda p: p.score, reverse=True)
+    return [p.payload for p in merged[:TOP_K]]
 
 
 def build_user_prompt(question: str, chunks: list[dict]) -> str:
-    context = "\n\n---\n\n".join(chunk["text"] for chunk in chunks)
-    return (
-        f"Context from repair manuals:\n{context}\n\n"
-        f"Answer this question in the same language it is written in:\n{question}"
-    )
+    parts = []
+    for chunk in chunks:
+        if chunk["source"].startswith("http"):
+            label = f"[Forum: {chunk.get('title') or chunk['source']}]"
+        else:
+            label = f"[Repair manual, page {chunk['page']}]"
+        parts.append(f"{label}\n{chunk['text']}")
+    context = "\n\n---\n\n".join(parts)
+    return f"Context:\n{context}\n\nQuestion: {question}"
 
 
 async def generate_answer(user_prompt: str, client: httpx.AsyncClient) -> str:
@@ -61,7 +69,7 @@ async def generate_answer(user_prompt: str, client: httpx.AsyncClient) -> str:
             ],
             "stream": False,
         },
-        timeout=120,
+        timeout=300,
     )
     response.raise_for_status()
     return response.json()["message"]["content"]
@@ -71,7 +79,7 @@ def extract_sources(chunks: list[dict]) -> list[dict]:
     return [
         {
             "source": chunk["source"],
-            "page": chunk["page"],
+            "page": chunk.get("page"),
             "snippet": chunk["text"][:SNIPPET_LENGTH],
         }
         for chunk in chunks

@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class Source(BaseModel):
     source: str
-    page: int
+    page: int | None
     snippet: str
 
 
