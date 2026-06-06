@@ -1,0 +1,7 @@
+# Elektroda.pl - wątki motoryzacyjne
+# Jedna linia = jeden wątek, linie zaczynające się od # są ignorowane
+
+# https://www.elektroda.pl/rtvforum/topic/EXAMPLE.html
+
+
+https://www.elektroda.pl/rtvforum/topic1306158.html
