@@ -48,6 +48,16 @@ uv run python scripts/ingest.py            # data/processed/ + forum → Qdrant
 
 API available at `http://localhost:8000`. Adminer (DB browser) at `http://localhost:8080`.
 
+### Optional: LangSmith tracing
+
+Add `LANGSMITH_*` variables to `.env` (see `.env-example`) to enable per-node tracing of the agent graph (NLU → retrieve → generate) at https://smith.langchain.com. After changing `.env`, recreate the backend container so it picks up the new vars:
+
+```bash
+docker compose up -d backend --force-recreate
+```
+
+Note: `docker compose restart` does not reload `.env` — use `up --force-recreate` instead.
+
 ## Endpoints
 
 | Method | Path | Description |
