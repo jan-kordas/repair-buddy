@@ -3,6 +3,7 @@ from langgraph.graph import END, START, StateGraph
 from qdrant_client import QdrantClient
 
 from app.schemas.dialog import DialogState
+from app.services.nlu import extract_slots
 from app.services.rag import (
     build_user_prompt,
     embed_question,
@@ -13,6 +14,9 @@ from app.services.rag import (
 
 
 def build_graph(qdrant: QdrantClient):
+    async def nlu(state: DialogState) -> dict:
+        return await extract_slots(state["question"])
+
     async def retrieve(state: DialogState) -> dict:
         async with httpx.AsyncClient() as client:
             vector = await embed_question(state["question"], client)
@@ -26,9 +30,11 @@ def build_graph(qdrant: QdrantClient):
         return {"answer": answer, "sources": extract_sources(state["chunks"])}
 
     graph = StateGraph(DialogState)
+    graph.add_node("nlu", nlu)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
-    graph.add_edge(START, "retrieve")
+    graph.add_edge(START, "nlu")
+    graph.add_edge("nlu", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", END)
     return graph.compile()
