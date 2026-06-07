@@ -36,14 +36,15 @@ cd backend
 uv run alembic upgrade head
 ```
 
-Ingest data into the vector DB (required on first run, and after adding new sources):
+Prepare PDFs (OCRs scans, adds a text layer where missing) and ingest into the vector DB:
 
 ```bash
 cd backend
-uv run python scripts/ingest.py
+uv run python scripts/prepare_dataset.py   # data/raw/ → data/processed/
+uv run python scripts/ingest.py            # data/processed/ + forum → Qdrant
 ```
 
-This rebuilds the entire Qdrant collection from scratch each time — PDF manuals from `data/raw/` and forum threads from `elektroda_scraper/output/threads.jsonl`.
+`prepare_dataset.py` is idempotent — re-running only processes new files in `data/raw/`. `ingest.py` rebuilds the Qdrant collections from scratch; see [Data ingestion](#data-ingestion) below for selective re-ingest.
 
 API available at `http://localhost:8000`. Adminer (DB browser) at `http://localhost:8080`.
 
@@ -89,29 +90,39 @@ uv run alembic downgrade -1
 
 ### Data ingestion
 
-`scripts/ingest.py` rebuilds the full Qdrant collection from two sources:
+Two-stage pipeline: **prepare** PDFs once, then **ingest** into Qdrant whenever sources change.
 
-| Source | Location | Format |
-|--------|----------|--------|
-| PDF repair manuals | `data/raw/*.pdf` | chunked by page (512 words, 50 overlap) |
-| Elektroda forum threads | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix |
+**Stage 1 — `scripts/prepare_dataset.py`** reads `data/raw/`, writes `data/processed/`:
 
-Requires Tesseract for scanned PDFs:
+- PDFs with an existing text layer are copied as-is.
+- Scanned PDFs are OCR'd via `ocrmypdf`, with the language inferred from the filename suffix (`_pl.pdf` → `pol`, `_en.pdf` → `eng`, `_fr.pdf` → `fra`).
+- Idempotent — files already in `data/processed/` are skipped.
+
+Requires:
 
 ```bash
-brew install tesseract
+brew install ocrmypdf tesseract-lang
 ```
 
-To scrape forum threads, add URLs to `elektroda_scraper/urls.txt` and run:
+**Stage 2 — `scripts/ingest.py`** chunks and embeds the prepared data into Qdrant. Two collections, populated from two sources:
+
+| Collection | Source | Format |
+|------------|--------|--------|
+| `repair_manuals` | `data/processed/*.pdf` | chunked by page (512 words, 50 overlap) |
+| `forum_posts` | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix |
+
+By default `ingest.py` rebuilds both collections. To re-ingest only one source (the other collection is left untouched):
+
+```bash
+uv run python scripts/ingest.py --only pdfs    # re-embed PDFs only
+uv run python scripts/ingest.py --only forum   # re-embed forum threads only
+```
+
+Use `--only pdfs` after running `prepare_dataset.py` on new manuals, and `--only forum` after scraping more threads — saves the time of re-embedding the other source.
+
+To scrape additional forum threads, add URLs to `elektroda_scraper/urls.txt` and run:
 
 ```bash
 cd elektroda_scraper
 uv run python main.py urls.txt
-```
-
-Then rebuild the vector DB:
-
-```bash
-cd backend
-uv run python scripts/ingest.py
 ```

@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import logging
@@ -16,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
-RAW_DIR = Path(__file__).resolve().parents[2] / "data" / "raw"
+PDF_DIR = Path(__file__).resolve().parents[2] / "data" / "processed"
 JSONL_PATH = Path(__file__).resolve().parents[2] / "elektroda_scraper" / "output" / "threads.jsonl"
 COLLECTION_PDF   = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
@@ -24,15 +25,12 @@ EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 50
 MIN_CHUNK_WORDS = 10
-OCR_THRESHOLD = 50
 EMBED_BATCH = 32
 WATERMARK_MIN_LENGTH = 30
 WATERMARK_SAMPLE_PAGES = 5
 WATERMARK_SAMPLE_CHARS = 500
 OLLAMA_URL = f"http://{settings.ollama_host}:{settings.ollama_port}/api/embed"
 
-
-# --- shared ---
 
 def split_into_chunks(text: str) -> list[str]:
     words = text.split()
@@ -85,21 +83,6 @@ def upload_to_qdrant(
     log.info("Upserted %d point(s) into '%s'.", len(points), collection)
 
 
-# --- PDF source ---
-
-def read_page_text(page: fitz.Page) -> str:
-    text = page.get_text().strip()
-    if len(text) >= OCR_THRESHOLD:
-        return text
-    try:
-        ocr_result = page.get_textpage_ocr(language="eng")
-        return page.get_text(textpage=ocr_result).strip()
-    except RuntimeError as error:
-        raise RuntimeError(
-            "OCR failed - is Tesseract installed? (`brew install tesseract`)"
-        ) from error
-
-
 def find_common_prefix(document: fitz.Document) -> str:
     samples = []
     for page in document:
@@ -135,7 +118,7 @@ def chunks_from_pdf(pdf_path: Path) -> list[dict]:
             log.info("Detected watermark (%d chars), stripping.", len(watermark))
         chunks = []
         for page_index, page in enumerate(tqdm(document, desc=pdf_path.name), start=1):
-            page_text = read_page_text(page)
+            page_text = page.get_text().strip()
             if watermark and page_text.startswith(watermark):
                 page_text = page_text[len(watermark):].strip()
             for chunk in split_into_chunks(page_text):
@@ -144,8 +127,6 @@ def chunks_from_pdf(pdf_path: Path) -> list[dict]:
                 )
     return chunks
 
-
-# --- forum source ---
 
 def load_threads(path: Path) -> list[dict]:
     threads = []
@@ -189,22 +170,12 @@ def chunks_from_threads(threads: list[dict]) -> list[dict]:
     return chunks
 
 
-# --- main ---
-
-def main() -> None:
-    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
-
-    log.info("Getting vector size from test embedding...")
-    vector_size = len(generate_embeddings(["test"])[0])
-
+def ingest_pdfs(qdrant: QdrantClient, vector_size: int) -> None:
     recreate_collection(qdrant, COLLECTION_PDF, vector_size)
-    recreate_collection(qdrant, COLLECTION_FORUM, vector_size)
-    log.info("Collections recreated (vector size: %d).", vector_size)
-
-    # PDFs
-    pdf_paths = sorted(RAW_DIR.glob("*.pdf"))
+    pdf_paths = sorted(PDF_DIR.glob("*.pdf"))
     if not pdf_paths:
-        log.warning("No PDFs found in %s", RAW_DIR)
+        log.warning("No PDFs found in %s — run scripts/prepare_dataset.py first.", PDF_DIR)
+        return
     for pdf_path in pdf_paths:
         log.info("Reading %s", pdf_path.name)
         chunks = chunks_from_pdf(pdf_path)
@@ -214,17 +185,38 @@ def main() -> None:
         embeddings = generate_embeddings([c["text"] for c in chunks])
         upload_to_qdrant(qdrant, COLLECTION_PDF, chunks, embeddings)
 
-    # Forum threads
+
+def ingest_forum(qdrant: QdrantClient, vector_size: int) -> None:
+    recreate_collection(qdrant, COLLECTION_FORUM, vector_size)
     if not JSONL_PATH.exists():
         log.warning("Elektroda JSONL not found at %s — skipping.", JSONL_PATH)
-    else:
-        threads = load_threads(JSONL_PATH)
-        log.info("Loaded %d thread(s) from elektroda.", len(threads))
-        chunks = chunks_from_threads(threads)
-        log.info("Embedding %d chunks from forum threads.", len(chunks))
-        if chunks:
-            embeddings = generate_embeddings([c["text"] for c in chunks])
-            upload_to_qdrant(qdrant, COLLECTION_FORUM, chunks, embeddings)
+        return
+    threads = load_threads(JSONL_PATH)
+    log.info("Loaded %d thread(s) from elektroda.", len(threads))
+    chunks = chunks_from_threads(threads)
+    log.info("Embedding %d chunks from forum threads.", len(chunks))
+    if chunks:
+        embeddings = generate_embeddings([c["text"] for c in chunks])
+        upload_to_qdrant(qdrant, COLLECTION_FORUM, chunks, embeddings)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Ingest PDFs and/or forum threads into Qdrant.")
+    parser.add_argument(
+        "--only",
+        choices=["pdfs", "forum"],
+        help="Ingest only one source. Default: ingest both.",
+    )
+    args = parser.parse_args()
+
+    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    log.info("Getting vector size from test embedding...")
+    vector_size = len(generate_embeddings(["test"])[0])
+
+    if args.only != "forum":
+        ingest_pdfs(qdrant, vector_size)
+    if args.only != "pdfs":
+        ingest_forum(qdrant, vector_size)
 
     log.info("Done.")
 
