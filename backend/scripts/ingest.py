@@ -26,6 +26,7 @@ CHUNK_SIZE = 512
 CHUNK_OVERLAP = 50
 MIN_CHUNK_WORDS = 10
 EMBED_BATCH = 32
+UPSERT_BATCH = 256
 WATERMARK_MIN_LENGTH = 30
 WATERMARK_SAMPLE_PAGES = 5
 WATERMARK_SAMPLE_CHARS = 500
@@ -79,7 +80,8 @@ def upload_to_qdrant(
         )
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings))
     ]
-    qdrant.upsert(collection_name=collection, points=points)
+    for start in range(0, len(points), UPSERT_BATCH):
+        qdrant.upsert(collection_name=collection, points=points[start : start + UPSERT_BATCH])
     log.info("Upserted %d point(s) into '%s'.", len(points), collection)
 
 
@@ -209,7 +211,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port, timeout=120)
     log.info("Getting vector size from test embedding...")
     vector_size = len(generate_embeddings(["test"])[0])
 
