@@ -8,11 +8,13 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.routers import chat
+from app.services.agent import build_graph
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    app.state.graph = build_graph(app.state.qdrant)
     yield
     app.state.qdrant.close()
     await engine.dispose()
