@@ -26,7 +26,7 @@ def build_graph(qdrant: QdrantClient):
     async def generate(state: DialogState) -> dict:
         prompt = build_user_prompt(state["question"], state["chunks"])
         async with httpx.AsyncClient() as client:
-            answer = await generate_answer(prompt, client)
+            answer = await generate_answer(prompt, client, history=state.get("history"))
         return {"answer": answer, "sources": extract_sources(state["chunks"])}
 
     graph = StateGraph(DialogState)
@@ -40,6 +40,6 @@ def build_graph(qdrant: QdrantClient):
     return graph.compile()
 
 
-async def ask(graph, question: str) -> tuple[str, list[dict]]:
-    state = await graph.ainvoke({"question": question})
+async def ask(graph, question: str, history: list[dict] | None = None) -> tuple[str, list[dict]]:
+    state = await graph.ainvoke({"question": question, "history": history or []})
     return state["answer"], state["sources"]

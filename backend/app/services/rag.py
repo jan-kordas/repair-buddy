@@ -58,17 +58,17 @@ def build_user_prompt(question: str, chunks: list[dict]) -> str:
     return f"Context:\n{context}\n\nQuestion: {question}"
 
 
-async def generate_answer(user_prompt: str, client: httpx.AsyncClient) -> str:
+async def generate_answer(
+    user_prompt: str, client: httpx.AsyncClient, history: list[dict] | None = None
+) -> str:
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_prompt})
+
     response = await client.post(
         f"{OLLAMA_BASE}/api/chat",
-        json={
-            "model": CHAT_MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-        },
+        json={"model": CHAT_MODEL, "messages": messages, "stream": False},
         timeout=300,
     )
     response.raise_for_status()

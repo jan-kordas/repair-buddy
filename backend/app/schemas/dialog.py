@@ -11,6 +11,9 @@ class DialogState(TypedDict):
     system: str | None
     symptoms: list[str]
 
+    # Conversation history from prior turns: [{"role": "user"|"assistant", "content": str}]
+    history: list[dict]
+
     # Retrieved by RAG
     chunks: list[dict]
 
