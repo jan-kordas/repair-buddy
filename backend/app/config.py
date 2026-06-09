@@ -11,6 +11,9 @@ class Settings(BaseSettings):
 
     ollama_host: str = "localhost"
     ollama_port: int = 11434
+    ollama_chat_model: str = "qwen3:8b"
+    ollama_nlu_model: str = "qwen3:8b"
+    ollama_embedding_model: str = "qwen3-embedding:0.6b"
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432

@@ -8,6 +8,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.routers import chat
+from app.routers import conversations
 from app.services.agent import build_graph
 
 
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="repair-buddy", lifespan=lifespan)
 app.include_router(chat.router)
+app.include_router(conversations.router)
 
 @app.get("/health")
 def health():

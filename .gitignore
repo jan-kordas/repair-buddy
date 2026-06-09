@@ -13,3 +13,4 @@ data/processed/*
 !data/processed/.gitkeep
 elektroda_scraper/.venv
 elektroda_scraper/output/threads.jsonl
+BACKLOG.md

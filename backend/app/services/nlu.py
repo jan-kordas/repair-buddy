@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 
-NLU_MODEL = "qwen3:8b"
+NLU_MODEL = settings.ollama_nlu_model
 
 SYSTEM_PROMPT = """You are a natural language understanding component for a car repair assistant.
 
