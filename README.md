@@ -1,32 +1,24 @@
 # Repair Buddy
 
-Conversational AI diagnostic assistant for car mechanics. Supports Skoda Octavia I and VW Golf IV. Multi-turn dialogue with slot tracking and RAG over repair manuals + forum threads.
+Conversational diagnostic assistant for car mechanics. Currently covers Skoda Octavia I and VW Golf IV. Multi-turn chat with RAG over repair manuals and forum threads.
 
 ## Stack
 
 - FastAPI + LangGraph + LangChain
-- Qdrant (vector DB)
-- Postgres (app data, async SQLAlchemy + Alembic)
-- Ollama (LLM, runs locally)
+- Qdrant for vectors
+- Postgres for app data (async SQLAlchemy + Alembic)
+- Ollama for local LLM, optional Groq for fast answer generation
 
-## Dialog architecture
+## How it works
 
-Task-oriented dialogue system with four canonical components:
+Each `/chat` request goes through a LangGraph pipeline:
 
-- **NLU** — intent classification + slot extraction (`car_make`, `car_model`, `system`, `symptoms`) via structured output
-- **DST** — slots persist in `conversations.slots` (JSON column) and accumulate across turns
-- **DP** — conditional routing on intent: `greeting`/`off_topic` → canned response, `question`/`clarify` → full RAG pipeline
-- **NLG** — history-aware generation with retrieved context, canned templates for non-domain intents
+1. NLU extracts the intent and slots (car make, model, system, symptoms) from the user message.
+2. If the intent is `greeting` or `off_topic`, the graph returns a canned reply and skips RAG.
+3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, and queries Qdrant filtered by the tracked slots.
+4. The retrieved chunks plus recent conversation history go to the answer model.
 
-Graph topology:
-
-```
-START → nlu → [route by intent]
-              ├─ direct_answer → END                       (canned, no LLM/RAG)
-              └─ contextualize → retrieve → generate → END (full RAG)
-```
-
-`contextualize` rewrites follow-up questions into standalone form before embedding, so "ile to kosztuje?" in a Golf 4 conversation retrieves chunks about Golf 4 starter cost. Retrieval is filtered by `car_make`/`car_model` from tracked slots.
+Slots accumulate across turns in `conversations.slots`, so a follow-up like "ile to potrwa?" still filters retrieval to the right car.
 
 ## Requirements
 
@@ -35,14 +27,16 @@ START → nlu → [route by intent]
 
 ## Setup
 
-Pull the models (defaults from `.env-example`):
+Pull the local models:
 
 ```bash
-ollama pull qwen3-embedding:0.6b   # embeddings (ingestion + queries)
-ollama pull gemma3:4b              # NLU slot extraction + answer generation
+ollama pull qwen3-embedding:0.6b   # embeddings
+ollama pull gemma3:4b              # NLU + (optional) local answer generation
 ```
 
-Model selection is configurable via `OLLAMA_CHAT_MODEL`, `OLLAMA_NLU_MODEL`, `OLLAMA_EMBEDDING_MODEL` in `.env`.
+You can switch models via `OLLAMA_CHAT_MODEL`, `OLLAMA_NLU_MODEL`, `OLLAMA_EMBEDDING_MODEL` in `.env`.
+
+For faster answers, set `GENERATE_PROVIDER=groq` and `GROQ_API_KEY=...` in `.env`. Groq has a free tier that covers normal usage.
 
 Run the stack:
 
@@ -57,27 +51,27 @@ cd backend
 uv run alembic upgrade head
 ```
 
-Prepare PDFs (OCRs scans, adds a text layer where missing) and ingest into the vector DB:
+Prepare and ingest the data:
 
 ```bash
 cd backend
-uv run python scripts/prepare_dataset.py   # data/raw/ → data/processed/
-uv run python scripts/ingest.py            # data/processed/ + forum → Qdrant
+uv run python scripts/prepare_dataset.py   # OCR scanned PDFs into data/processed/
+uv run python scripts/ingest.py            # chunk + embed PDFs and forum into Qdrant
 ```
 
-`prepare_dataset.py` is idempotent — re-running only processes new files in `data/raw/`. `ingest.py` rebuilds the Qdrant collections from scratch; see [Data ingestion](#data-ingestion) below for selective re-ingest.
+`prepare_dataset.py` is idempotent: re-running only processes new files. `ingest.py` rebuilds both Qdrant collections; see [Data ingestion](#data-ingestion) for selective re-ingest.
 
-API available at `http://localhost:8000`. Adminer (DB browser) at `http://localhost:8080`.
+API is at `http://localhost:8000`. Adminer (DB browser) at `http://localhost:8080`.
 
 ### Optional: LangSmith tracing
 
-Add `LANGSMITH_*` variables to `.env` (see `.env-example`) to enable per-node tracing of the agent graph at https://smith.langchain.com. Each node (nlu, contextualize, retrieve, generate, direct_answer) reports input/output and latency. After changing `.env`, recreate the backend container so it picks up the new vars:
+Set the `LANGSMITH_*` variables in `.env` (see `.env-example`) to see per-node traces at https://smith.langchain.com. Recreate the backend container after editing `.env`:
 
 ```bash
 docker compose up -d backend --force-recreate
 ```
 
-Note: `docker compose restart` does not reload `.env` — use `up --force-recreate` instead.
+`docker compose restart` does not reload `.env`.
 
 ## Endpoints
 
@@ -87,8 +81,8 @@ Note: `docker compose restart` does not reload `.env` — use `up --force-recrea
 | GET | `/health/qdrant` | Qdrant status |
 | GET | `/health/ollama` | Ollama status |
 | GET | `/health/postgres` | Postgres status |
-| POST | `/chat` | ask a question (optional `conversation_id` for multi-turn); returns answer, sources, `conversation_id` |
-| GET | `/conversations/{id}/messages` | chronological message history of a conversation |
+| POST | `/chat` | ask a question; optional `conversation_id` for multi-turn |
+| GET | `/conversations/{id}/messages` | message history for a conversation |
 
 ## Local development
 
@@ -98,7 +92,7 @@ uv sync
 uv run uvicorn app.main:app --reload
 ```
 
-Code style is enforced with ruff. After `uv sync` run:
+Lint and format with ruff:
 
 ```bash
 uv run ruff check .
@@ -107,7 +101,7 @@ uv run ruff format .
 
 ### Database migrations
 
-After changing models in `app/models/`, generate a new migration:
+After changing models in `app/models/`:
 
 ```bash
 uv run alembic revision --autogenerate -m "describe change"
@@ -122,13 +116,9 @@ uv run alembic downgrade -1
 
 ### Data ingestion
 
-Two-stage pipeline: **prepare** PDFs once, then **ingest** into Qdrant whenever sources change.
+Two stages: prepare PDFs once, then ingest into Qdrant whenever the sources change.
 
-**Stage 1 — `scripts/prepare_dataset.py`** reads `data/raw/`, writes `data/processed/`:
-
-- PDFs with an existing text layer are copied as-is.
-- Scanned PDFs are OCR'd via `ocrmypdf`, with the language inferred from the filename suffix (`_pl.pdf` → `pol`, `_en.pdf` → `eng`, `_fr.pdf` → `fra`).
-- Idempotent — files already in `data/processed/` are skipped.
+**Stage 1 - `scripts/prepare_dataset.py`** reads `data/raw/` and writes `data/processed/`. PDFs with a text layer are copied as-is. Scanned PDFs go through `ocrmypdf` with the language inferred from the filename suffix (`_pl.pdf`, `_en.pdf`, `_fr.pdf`). Files already in `data/processed/` are skipped.
 
 Requires:
 
@@ -136,23 +126,21 @@ Requires:
 brew install ocrmypdf tesseract-lang
 ```
 
-**Stage 2 — `scripts/ingest.py`** chunks and embeds the prepared data into Qdrant. Two collections, populated from two sources:
+**Stage 2 - `scripts/ingest.py`** chunks and embeds the data into Qdrant. Two collections:
 
-| Collection | Source | Format |
-|------------|--------|--------|
-| `repair_manuals` | `data/processed/*.pdf` | chunked by page (512 words, 50 overlap) |
+| Collection | Source | Chunking |
+|------------|--------|----------|
+| `repair_manuals` | `data/processed/*.pdf` | by page, 512 words, 50 overlap |
 | `forum_posts` | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix |
 
-By default `ingest.py` rebuilds both collections. To re-ingest only one source (the other collection is left untouched):
+By default both collections are rebuilt. To re-ingest only one:
 
 ```bash
-uv run python scripts/ingest.py --only pdfs    # re-embed PDFs only
-uv run python scripts/ingest.py --only forum   # re-embed forum threads only
+uv run python scripts/ingest.py --only pdfs
+uv run python scripts/ingest.py --only forum
 ```
 
-Use `--only pdfs` after running `prepare_dataset.py` on new manuals, and `--only forum` after scraping more threads — saves the time of re-embedding the other source.
-
-To scrape additional forum threads, add URLs to `elektroda_scraper/urls.txt` and run:
+To scrape more forum threads, add URLs to `elektroda_scraper/urls.txt`:
 
 ```bash
 cd elektroda_scraper
