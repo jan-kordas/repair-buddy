@@ -8,7 +8,7 @@ EMBEDDING_MODEL = settings.ollama_embedding_model
 CONTEXTUALIZE_MODEL = settings.ollama_chat_model
 COLLECTION_PDF   = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
-TOP_K = 3
+TOP_K = 5
 SNIPPET_LENGTH = 200
 HISTORY_WINDOW = 4  # last N messages passed to LLM (2 user/assistant pairs)
 HISTORY_MESSAGE_MAX_CHARS = 500  # truncate each history message to avoid context bloat
@@ -44,7 +44,7 @@ Conversation:
 Answering:
 - Ground answers in the provided context when possible.
 - If context contains relevant information, use it even if it does not perfectly match the question.
-- If context is unrelated or empty, say so briefly and offer general guidance based on car mechanics knowledge.
+- If context is unrelated or empty, say clearly that your knowledge base does not contain information on this topic. Do NOT generate answers from general knowledge.
 - When manual and forum sources conflict, prefer the manual.
 - Do NOT cite source labels or filenames — the UI shows sources separately.
 
