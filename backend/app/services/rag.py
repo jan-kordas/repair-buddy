@@ -8,10 +8,20 @@ EMBEDDING_MODEL = settings.ollama_embedding_model
 CHAT_MODEL = settings.ollama_chat_model
 COLLECTION_PDF   = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
-TOP_K = 5
+TOP_K = 3
 SNIPPET_LENGTH = 200
+HISTORY_WINDOW = 4  # last N messages passed to LLM (2 user/assistant pairs)
+HISTORY_MESSAGE_MAX_CHARS = 500  # truncate each history message to avoid context bloat
 
 OLLAMA_BASE = f"http://{settings.ollama_host}:{settings.ollama_port}"
+
+CONTEXTUALIZE_PROMPT = (
+    "Given a conversation history and the user's latest question, rewrite the question "
+    "into a standalone form that can be understood without the history. "
+    "If the question is already standalone, return it unchanged. "
+    "Return ONLY the rewritten question, nothing else — no explanation, no quotes, no prefix."
+)
+
 
 SYSTEM_PROMPT = (
     "You are an assistant for car mechanics. "
@@ -24,6 +34,13 @@ SYSTEM_PROMPT = (
     "Do not reference source labels or filenames — the system shows sources separately. "
     "Respond in the same language the user used in their question."
 )
+
+
+def _trim_history(history: list[dict]) -> list[dict]:
+    return [
+        {"role": message["role"], "content": message["content"][:HISTORY_MESSAGE_MAX_CHARS]}
+        for message in history[-HISTORY_WINDOW:]
+    ]
 
 
 async def embed_question(question: str, client: httpx.AsyncClient) -> list[float]:
@@ -111,16 +128,45 @@ async def generate_answer(
 ) -> str:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
-        messages.extend(history)
+        messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_prompt})
 
     response = await client.post(
         f"{OLLAMA_BASE}/api/chat",
-        json={"model": CHAT_MODEL, "messages": messages, "stream": False},
+        json={
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "stream": False,
+            "options": {"num_predict": 800},
+        },
         timeout=300,
     )
     response.raise_for_status()
     return response.json()["message"]["content"]
+
+
+async def contextualize_question(
+    question: str, history: list[dict], client: httpx.AsyncClient
+) -> str:
+    if not history:
+        return question
+
+    messages = [{"role": "system", "content": CONTEXTUALIZE_PROMPT}]
+    messages.extend(_trim_history(history))
+    messages.append({"role": "user", "content": question})
+
+    response = await client.post(
+        f"{OLLAMA_BASE}/api/chat",
+        json={
+            "model": CHAT_MODEL,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": 0, "num_predict": 100},
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"].strip()
 
 
 def extract_sources(chunks: list[dict]) -> list[dict]:

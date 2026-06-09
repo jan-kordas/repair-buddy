@@ -61,7 +61,7 @@ def append_assistant_turn(
     conversation_id: int,
     content: str,
     sources: list[dict],
-    model: str,
+    model: str | None,
 ) -> None:
     db.add(Message(
         conversation_id=conversation_id,

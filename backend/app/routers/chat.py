@@ -6,7 +6,6 @@ from app.db import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, Source
 from app.services import conversation as conversation_service
 from app.services.agent import ask
-from app.services.rag import CHAT_MODEL
 
 router = APIRouter(tags=["chat"])
 
@@ -27,7 +26,7 @@ async def chat(
     history = await conversation_service.load_history(db, conversation.id)
 
     conversation_service.append_user_turn(db, conversation.id, body.question)
-    answer, sources, merged_slots = await ask(
+    answer, sources, merged_slots, model_used = await ask(
         request.app.state.graph,
         body.question,
         history,
@@ -36,7 +35,7 @@ async def chat(
     conversation.slots = merged_slots
     flag_modified(conversation, "slots")
     conversation_service.append_assistant_turn(
-        db, conversation.id, answer, sources, CHAT_MODEL
+        db, conversation.id, answer, sources, model_used
     )
 
     await db.commit()

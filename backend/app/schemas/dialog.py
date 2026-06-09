@@ -14,8 +14,14 @@ class DialogState(TypedDict):
     # Conversation history from prior turns: [{"role": "user"|"assistant", "content": str}]
     history: list[dict]
 
+    # Question rewritten for retrieval (standalone form, history-aware)
+    search_query: str
+
     # Retrieved by RAG
     chunks: list[dict]
+
+    # Model identifier used to produce the answer; None for canned responses
+    model_used: str | None
 
     # Produced by generate node
     answer: str
