@@ -6,6 +6,23 @@ from app.models.message import Message
 
 DEFAULT_USER_ID = 1
 
+PERSISTENT_SLOT_KEYS = ("car_make", "car_model", "system")
+
+
+def merge_slots(prior: dict, new: dict) -> dict:
+    merged: dict = {}
+    for key in PERSISTENT_SLOT_KEYS:
+        merged[key] = new.get(key) or prior.get(key)
+
+    prior_symptoms = prior.get("symptoms") or []
+    new_symptoms = new.get("symptoms") or []
+    seen = {symptom.lower() for symptom in prior_symptoms}
+    merged["symptoms"] = list(prior_symptoms) + [
+        symptom for symptom in new_symptoms if symptom.lower() not in seen
+    ]
+
+    return merged
+
 
 async def get(db: AsyncSession, conversation_id: int) -> Conversation | None:
     result = await db.execute(

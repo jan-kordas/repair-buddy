@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, Source
@@ -26,7 +27,14 @@ async def chat(
     history = await conversation_service.load_history(db, conversation.id)
 
     conversation_service.append_user_turn(db, conversation.id, body.question)
-    answer, sources = await ask(request.app.state.graph, body.question, history)
+    answer, sources, merged_slots = await ask(
+        request.app.state.graph,
+        body.question,
+        history,
+        prior_slots=conversation.slots,
+    )
+    conversation.slots = merged_slots
+    flag_modified(conversation, "slots")
     conversation_service.append_assistant_turn(
         db, conversation.id, answer, sources, CHAT_MODEL
     )

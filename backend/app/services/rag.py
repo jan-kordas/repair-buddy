@@ -1,10 +1,11 @@
 import httpx
 from qdrant_client import QdrantClient
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.config import settings
 
-EMBEDDING_MODEL = "qwen3-embedding:0.6b"
-CHAT_MODEL = "qwen3:8b"
+EMBEDDING_MODEL = settings.ollama_embedding_model
+CHAT_MODEL = settings.ollama_chat_model
 COLLECTION_PDF   = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
 TOP_K = 5
@@ -35,15 +36,62 @@ async def embed_question(question: str, client: httpx.AsyncClient) -> list[float
     return response.json()["embeddings"][0]
 
 
-def search_context(qdrant: QdrantClient, vector: list[float]) -> list[dict]:
+CAR_MAKE_PAYLOAD_ALIASES = {
+    "vw": "volkswagen",
+}
+
+
+def _normalize_car_make(car_make: str | None) -> str | None:
+    if car_make is None:
+        return None
+    return CAR_MAKE_PAYLOAD_ALIASES.get(car_make, car_make)
+
+
+def _normalize_car_model(car_model: str | None) -> str | None:
+    """Strip trailing digits so 'golf4' matches payload value 'golf'."""
+    if car_model is None:
+        return None
+    return car_model.rstrip("0123456789") or None
+
+
+def _build_filter(car_make: str | None, car_model: str | None) -> Filter | None:
+    conditions: list[FieldCondition] = []
+    normalized_make = _normalize_car_make(car_make)
+    if normalized_make:
+        conditions.append(
+            FieldCondition(key="car_make", match=MatchValue(value=normalized_make))
+        )
+    normalized_model = _normalize_car_model(car_model)
+    if normalized_model:
+        conditions.append(
+            FieldCondition(key="car_models", match=MatchValue(value=normalized_model))
+        )
+    return Filter(must=conditions) if conditions else None
+
+
+def search_context(
+    qdrant: QdrantClient,
+    vector: list[float],
+    car_make: str | None = None,
+    car_model: str | None = None,
+) -> list[dict]:
+    query_filter = _build_filter(car_make, car_model)
     pdf_hits = qdrant.query_points(
-        collection_name=COLLECTION_PDF, query=vector, limit=TOP_K, with_payload=True
+        collection_name=COLLECTION_PDF,
+        query=vector,
+        limit=TOP_K,
+        with_payload=True,
+        query_filter=query_filter,
     ).points
     forum_hits = qdrant.query_points(
-        collection_name=COLLECTION_FORUM, query=vector, limit=TOP_K, with_payload=True
+        collection_name=COLLECTION_FORUM,
+        query=vector,
+        limit=TOP_K,
+        with_payload=True,
+        query_filter=query_filter,
     ).points
-    merged = sorted(pdf_hits + forum_hits, key=lambda p: p.score, reverse=True)
-    return [p.payload for p in merged[:TOP_K]]
+    merged = sorted(pdf_hits + forum_hits, key=lambda point: point.score, reverse=True)
+    return [point.payload for point in merged[:TOP_K]]
 
 
 def build_user_prompt(question: str, chunks: list[dict]) -> str:
