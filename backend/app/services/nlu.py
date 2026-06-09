@@ -22,6 +22,8 @@ Examples:
 "jak wymienic termostat w golf 4" -> intent=question, car_make=vw, car_model=golf4, system=engine, symptoms=[]
 "czesc" -> intent=greeting, all others null/empty
 "octavia nie zapala, kontrolka oleju swieci" -> intent=question, car_make=skoda, car_model=octavia1, system=engine, symptoms=["nie zapala", "kontrolka oleju swieci"]
+"jaka bedzie pogoda jutro" -> intent=off_topic, all others null/empty
+"opowiedz mi zart" -> intent=off_topic, all others null/empty
 """
 
 
