@@ -4,9 +4,9 @@ from qdrant_client import QdrantClient
 
 from app.schemas.dialog import DialogState
 from app.services.conversation import PERSISTENT_SLOT_KEYS, merge_slots
+from app.services.llm import provider
 from app.services.nlu import extract_slots
 from app.services.rag import (
-    CHAT_MODEL,
     build_user_prompt,
     contextualize_question,
     embed_question,
@@ -66,12 +66,11 @@ def build_graph(qdrant: QdrantClient):
 
     async def generate(state: DialogState) -> dict:
         prompt = build_user_prompt(state["question"], state["chunks"])
-        async with httpx.AsyncClient() as client:
-            answer = await generate_answer(prompt, client, history=state.get("history"))
+        answer = await generate_answer(prompt, history=state.get("history"))
         return {
             "answer": answer,
             "sources": extract_sources(state["chunks"]),
-            "model_used": CHAT_MODEL,
+            "model_used": provider.model_name,
         }
 
     graph = StateGraph(DialogState)

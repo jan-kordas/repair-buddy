@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     ollama_nlu_model: str = "qwen3:8b"
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
 
+    generate_provider: str = "ollama"  # "ollama" | "groq"
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "repair_buddy"

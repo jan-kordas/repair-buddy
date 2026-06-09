@@ -5,7 +5,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchValue
 from app.config import settings
 
 EMBEDDING_MODEL = settings.ollama_embedding_model
-CHAT_MODEL = settings.ollama_chat_model
+CONTEXTUALIZE_MODEL = settings.ollama_chat_model
 COLLECTION_PDF   = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
 TOP_K = 3
@@ -124,25 +124,16 @@ def build_user_prompt(question: str, chunks: list[dict]) -> str:
 
 
 async def generate_answer(
-    user_prompt: str, client: httpx.AsyncClient, history: list[dict] | None = None
+    user_prompt: str, history: list[dict] | None = None
 ) -> str:
+    from app.services.llm import provider
+
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
         messages.extend(_trim_history(history))
     messages.append({"role": "user", "content": user_prompt})
 
-    response = await client.post(
-        f"{OLLAMA_BASE}/api/chat",
-        json={
-            "model": CHAT_MODEL,
-            "messages": messages,
-            "stream": False,
-            "options": {"num_predict": 800},
-        },
-        timeout=300,
-    )
-    response.raise_for_status()
-    return response.json()["message"]["content"]
+    return await provider.generate(messages, max_tokens=800)
 
 
 async def contextualize_question(
@@ -158,7 +149,7 @@ async def contextualize_question(
     response = await client.post(
         f"{OLLAMA_BASE}/api/chat",
         json={
-            "model": CHAT_MODEL,
+            "model": CONTEXTUALIZE_MODEL,
             "messages": messages,
             "stream": False,
             "options": {"temperature": 0, "num_predict": 100},
