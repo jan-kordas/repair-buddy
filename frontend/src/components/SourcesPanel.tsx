@@ -9,50 +9,42 @@ function formatLabel(source: Source): string {
   if (source.source.startsWith('http')) {
     try {
       const url = new URL(source.source);
-      return url.hostname.replace('www.', '');
+      const path = url.pathname.replace(/\/$/, '').split('/').pop() || url.hostname;
+      return `${url.hostname.replace('www.', '')} / ${path}`;
     } catch {
       return source.source;
     }
   }
   const parts = source.source.split('/');
   const file = parts[parts.length - 1];
-  if (source.page) return `${file} · s. ${source.page}`;
-  return file;
+  return source.page ? `${file} · s. ${source.page}` : file;
 }
 
 export function SourcesPanel({ sources }: Props) {
   const [open, setOpen] = useState(false);
-
   if (sources.length === 0) return null;
 
   return (
     <div className="sources-panel">
       <button className="sources-toggle" onClick={() => setOpen(!open)}>
-        <span className="sources-icon">{open ? '▾' : '▸'}</span>
-        <span>Źródła ({sources.length})</span>
+        <span className="sources-chevron">{open ? '▾' : '▸'}</span>
+        Źródła ({sources.length})
       </button>
 
       {open && (
-        <div className="sources-list">
+        <div className="sources-grid">
           {sources.map((src, i) => (
-            <div key={i} className="source-item">
-              <div className="source-header">
+            <div key={i} className="source-card">
+              <div className="source-card-header">
                 {src.source.startsWith('http') ? (
-                  <a
-                    href={src.source}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="source-link"
-                  >
+                  <a href={src.source} target="_blank" rel="noopener noreferrer" className="source-link">
                     {formatLabel(src)}
                   </a>
                 ) : (
                   <span className="source-file">{formatLabel(src)}</span>
                 )}
                 {src.relevance_score != null && (
-                  <span className="source-score">
-                    {(src.relevance_score * 100).toFixed(0)}%
-                  </span>
+                  <span className="source-score">{(src.relevance_score * 100).toFixed(0)}%</span>
                 )}
               </div>
               <p className="source-snippet">{src.snippet}</p>

@@ -10,24 +10,16 @@ interface Props {
 
 export function ChatMessage({ role, content, sources }: Props) {
   const isUser = role === 'user';
-
   return (
-    <div className={`message-row ${isUser ? 'message-row--user' : 'message-row--assistant'}`}>
-      <div className="message-avatar">
-        {isUser ? '👤' : '🔧'}
-      </div>
-      <div className={`message-bubble ${isUser ? 'bubble--user' : 'bubble--assistant'}`}>
+    <div className={`msg-row ${isUser ? 'msg-row--user' : 'msg-row--assistant'}`}>
+      <div className="msg-avatar">{isUser ? '👤' : '🔧'}</div>
+      <div className={`msg-bubble ${isUser ? 'msg-bubble--user' : 'msg-bubble--assistant'}`}>
         {isUser ? (
-          <p className="message-text">{content}</p>
+          <p>{content}</p>
         ) : (
-          <div
-            className="message-text prose"
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
-          />
+          <div className="prose" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
         )}
-        {!isUser && sources && sources.length > 0 && (
-          <SourcesPanel sources={sources} />
-        )}
+        {!isUser && sources && sources.length > 0 && <SourcesPanel sources={sources} />}
       </div>
     </div>
   );
