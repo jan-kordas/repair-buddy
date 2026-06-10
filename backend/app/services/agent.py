@@ -2,6 +2,7 @@ import httpx
 from langgraph.graph import END, START, StateGraph
 from qdrant_client import QdrantClient
 
+from app.db import SessionLocal
 from app.schemas.dialog import DialogState
 from app.services.conversation import PERSISTENT_SLOT_KEYS, merge_slots
 from app.services.llm import provider
@@ -56,12 +57,14 @@ def build_graph(qdrant: QdrantClient):
     async def retrieve(state: DialogState) -> dict:
         async with httpx.AsyncClient() as client:
             vector = await embed_question(state["search_query"], client)
-        chunks = search_context(
-            qdrant,
-            vector,
-            car_make=state.get("car_make"),
-            car_model=state.get("car_model"),
-        )
+        async with SessionLocal() as session:
+            chunks = await search_context(
+                qdrant,
+                session,
+                vector,
+                car_make=state.get("car_make"),
+                car_model=state.get("car_model"),
+            )
         return {"chunks": chunks}
 
     async def generate(state: DialogState) -> dict:
