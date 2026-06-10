@@ -15,9 +15,11 @@ class Settings(BaseSettings):
     ollama_nlu_model: str = "qwen3:8b"
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
 
-    generate_provider: str = "ollama"  # "ollama" | "groq"
+    generate_provider: str = "ollama"  # "ollama" | "groq" | "openai"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
 
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     retrieval_top_k: int = 30
