@@ -18,7 +18,7 @@ Each `/chat` request goes through a LangGraph pipeline:
 3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, and queries Qdrant filtered by the tracked slots.
 4. The retrieved chunks plus recent conversation history go to the answer model.
 
-Slots accumulate across turns in `conversations.slots`, so a follow-up like "ile to potrwa?" still filters retrieval to the right car.
+Slots accumulate across turns in `conversations.slots`, so a follow-up like "how long will it take?" still filters retrieval to the right car.
 
 ## Requirements
 
