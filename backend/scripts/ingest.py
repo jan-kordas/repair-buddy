@@ -31,6 +31,8 @@ WATERMARK_MIN_LENGTH = 30
 WATERMARK_SAMPLE_PAGES = 5
 WATERMARK_SAMPLE_CHARS = 500
 OLLAMA_URL = f"http://{settings.ollama_host}:{settings.ollama_port}/api/embed"
+# qwen3-embedding:0.6b default num_ctx in Ollama is 2048 tokens (~1500 chars of dense text)
+MAX_EMBED_CHARS = 1500
 
 
 def split_into_chunks(text: str) -> list[str]:
@@ -44,14 +46,28 @@ def split_into_chunks(text: str) -> list[str]:
     return chunks
 
 
+def _embed_batch(client: httpx.Client, batch: list[str]) -> list[list[float]]:
+    truncated = [t[:MAX_EMBED_CHARS] for t in batch]
+    response = client.post(OLLAMA_URL, json={"model": EMBEDDING_MODEL, "input": truncated})
+    response.raise_for_status()
+    return response.json()["embeddings"]
+
+
 def generate_embeddings(texts: list[str]) -> list[list[float]]:
     embeddings = []
     with httpx.Client(timeout=120) as client, tqdm(total=len(texts), desc="Embedding") as progress:
         for start in range(0, len(texts), EMBED_BATCH):
             batch = texts[start : start + EMBED_BATCH]
-            response = client.post(OLLAMA_URL, json={"model": EMBEDDING_MODEL, "input": batch})
-            response.raise_for_status()
-            embeddings.extend(response.json()["embeddings"])
+            try:
+                embeddings.extend(_embed_batch(client, batch))
+            except httpx.HTTPStatusError as exc:
+                log.warning("Batch [%d:%d] failed (%s), retrying per item.", start, start + len(batch), exc.response.status_code)
+                for i, text in enumerate(batch):
+                    try:
+                        embeddings.extend(_embed_batch(client, [text]))
+                    except httpx.HTTPStatusError:
+                        log.error("Skipping chunk %d (embedding failed): %.120r", start + i, text[:120])
+                        embeddings.append([0.0] * (len(embeddings[0]) if embeddings else 1))
             progress.update(len(batch))
     return embeddings
 
