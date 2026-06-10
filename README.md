@@ -6,7 +6,7 @@ Conversational diagnostic assistant for car mechanics. Currently covers Skoda Oc
 
 - FastAPI + LangGraph + LangChain
 - Qdrant for vectors
-- Postgres for app data (async SQLAlchemy + Alembic)
+- Postgres for app data and parent chunks (async SQLAlchemy + Alembic)
 - Ollama for local LLM, optional Groq for fast answer generation
 
 ## How it works
@@ -130,8 +130,8 @@ brew install ocrmypdf tesseract-lang
 
 | Collection | Source | Chunking |
 |------------|--------|----------|
-| `repair_manuals` | `data/processed/*.pdf` | by page, 512 words, 50 overlap |
-| `forum_posts` | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix |
+| `repair_manuals` | `data/processed/*.pdf` | tokenizer-aware macro/micro split (Qwen tokenizer); ~1200-token parents to Postgres `chunk_parents`, ~250-token children to Qdrant with `parent_id` |
+| `forum_posts` | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix, 512 words, 50 overlap |
 
 By default both collections are rebuilt. To re-ingest only one:
 
