@@ -15,8 +15,8 @@ Each `/chat` request goes through a LangGraph pipeline:
 
 1. NLU extracts the intent and slots (car make, model, system, symptoms) from the user message.
 2. If the intent is `greeting` or `off_topic`, the graph returns a canned reply and skips RAG.
-3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, and queries Qdrant filtered by the tracked slots.
-4. The retrieved chunks plus recent conversation history go to the answer model.
+3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, queries Qdrant for matching micro chunks filtered by the tracked slots, and fetches their macro parent chunks from Postgres.
+4. The retrieved parent chunks (broader context than what was matched) plus recent conversation history go to the answer model.
 
 Slots accumulate across turns in `conversations.slots`, so a follow-up like "ile to potrwa?" still filters retrieval to the right car.
 
