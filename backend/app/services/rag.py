@@ -1,8 +1,14 @@
+from uuid import UUID
+
 import httpx
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, MatchValue
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.db import SessionLocal
+from app.models import ChunkParent
 
 EMBEDDING_MODEL = settings.ollama_embedding_model
 CONTEXTUALIZE_MODEL = settings.ollama_chat_model
@@ -10,7 +16,7 @@ COLLECTION_PDF = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
 RETRIEVAL_TOP_K = settings.retrieval_top_k
 SNIPPET_LENGTH = 200
-HISTORY_WINDOW = 4  # last N messages passed to LLM (2 user/assistant pairs)
+HISTORY_WINDOW = 10  # last N messages passed to LLM (5 user/assistant pairs)
 HISTORY_MESSAGE_MAX_CHARS = 500  # truncate each history message to avoid context bloat
 
 OLLAMA_BASE = f"http://{settings.ollama_host}:{settings.ollama_port}"
@@ -91,12 +97,14 @@ def _normalize_car_model(car_model: str | None) -> str | None:
     return car_model.rstrip("0123456789") or None
 
 
-def _build_filter(car_make: str | None, car_model: str | None) -> Filter | None:
+def _build_filter(
+    car_make: str | None, car_model: str | None, make_key: str
+) -> Filter | None:
     conditions: list[FieldCondition] = []
     normalized_make = _normalize_car_make(car_make)
     if normalized_make:
         conditions.append(
-            FieldCondition(key="car_make", match=MatchValue(value=normalized_make))
+            FieldCondition(key=make_key, match=MatchValue(value=normalized_make))
         )
     normalized_model = _normalize_car_model(car_model)
     if normalized_model:
@@ -106,29 +114,66 @@ def _build_filter(car_make: str | None, car_model: str | None) -> Filter | None:
     return Filter(must=conditions) if conditions else None
 
 
-def search_context(
+async def search_context(
     qdrant: QdrantClient,
+    session: AsyncSession,
     vector: list[float],
     car_make: str | None = None,
     car_model: str | None = None,
 ) -> list[dict]:
-    query_filter = _build_filter(car_make, car_model)
+    pdf_filter = _build_filter(car_make, car_model, make_key="car_makes")
+    forum_filter = _build_filter(car_make, car_model, make_key="car_make")
     pdf_hits = qdrant.query_points(
         collection_name=COLLECTION_PDF,
         query=vector,
         limit=RETRIEVAL_TOP_K,
         with_payload=True,
-        query_filter=query_filter,
+        query_filter=pdf_filter,
     ).points
     forum_hits = qdrant.query_points(
         collection_name=COLLECTION_FORUM,
         query=vector,
         limit=RETRIEVAL_TOP_K,
         with_payload=True,
-        query_filter=query_filter,
+        query_filter=forum_filter,
     ).points
-    merged = sorted(pdf_hits + forum_hits, key=lambda point: point.score, reverse=True)
-    return [point.payload for point in merged]
+    merged = sorted(pdf_hits + forum_hits, key=lambda point: point.score, reverse=True)[:RETRIEVAL_TOP_K]
+
+    parent_ids = [
+        UUID(hit.payload["parent_id"])
+        for hit in merged
+        if hit.payload.get("parent_id")
+    ]
+    parents_by_id: dict[str, ChunkParent] = {}
+    if parent_ids:
+        result = await session.execute(
+            select(ChunkParent).where(ChunkParent.id.in_(parent_ids))
+        )
+        parents_by_id = {str(row.id): row for row in result.scalars()}
+
+    chunks = []
+    for hit in merged:
+        payload = hit.payload
+        parent = parents_by_id.get(payload.get("parent_id"))
+        if parent:
+            chunks.append({
+                "source": payload["source"],
+                "page": parent.page_start,
+                "page_end": parent.page_end,
+                "section": parent.section,
+                "text": parent.text,
+            })
+        else:
+            chunks.append(payload)
+    return chunks
+
+
+def _format_page_range(start: int | None, end: int | None) -> str:
+    if start is None:
+        return "?"
+    if end and end != start:
+        return f"{start}-{end}"
+    return str(start)
 
 
 def build_user_prompt(question: str, chunks: list[dict]) -> str:
@@ -137,7 +182,12 @@ def build_user_prompt(question: str, chunks: list[dict]) -> str:
         if chunk["source"].startswith("http"):
             label = f"[Forum: {chunk.get('title') or chunk['source']}]"
         else:
-            label = f"[Repair manual, page {chunk['page']}]"
+            pages = _format_page_range(chunk.get("page"), chunk.get("page_end"))
+            section = chunk.get("section")
+            if section:
+                label = f"[Repair manual, {section}, p. {pages}]"
+            else:
+                label = f"[Repair manual, p. {pages}]"
         parts.append(f"{label}\n{chunk['text']}")
     context = "\n\n---\n\n".join(parts)
     return f"Context:\n{context}\n\nQuestion: {question}"
@@ -195,9 +245,9 @@ def extract_sources(chunks: list[dict]) -> list[dict]:
 async def ask(question: str, qdrant: QdrantClient) -> tuple[str, list[dict]]:
     async with httpx.AsyncClient() as client:
         vector = await embed_question(question, client)
-        chunks = search_context(qdrant, vector)
-        user_prompt = build_user_prompt(question, chunks)
-        answer = await generate_answer(user_prompt, client)
-
+    async with SessionLocal() as session:
+        chunks = await search_context(qdrant, session, vector)
+    user_prompt = build_user_prompt(question, chunks)
+    answer = await generate_answer(user_prompt)
     sources = extract_sources(chunks)
     return answer, sources
