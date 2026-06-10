@@ -6,6 +6,7 @@ from app.schemas.dialog import DialogState
 from app.services.conversation import PERSISTENT_SLOT_KEYS, merge_slots
 from app.services.llm import provider
 from app.services.nlu import extract_slots
+from app.config import settings
 from app.services.rag import (
     build_user_prompt,
     contextualize_question,
@@ -14,6 +15,7 @@ from app.services.rag import (
     generate_answer,
     search_context,
 )
+from app.services.reranker import reranker
 
 CANNED_RESPONSES = {
     "greeting": (
@@ -83,7 +85,8 @@ def build_graph(qdrant: QdrantClient):
             car_make=state.get("car_make"),
             car_model=state.get("car_model"),
         )
-        return {"chunks": chunks}
+        ranked = reranker.rerank(state["search_query"], chunks, top_k=settings.reranker_top_k)
+        return {"chunks": ranked}
 
     async def generate(state: DialogState) -> dict:
         prompt = build_user_prompt(state["question"], state["chunks"])

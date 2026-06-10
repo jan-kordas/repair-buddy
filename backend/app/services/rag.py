@@ -6,9 +6,9 @@ from app.config import settings
 
 EMBEDDING_MODEL = settings.ollama_embedding_model
 CONTEXTUALIZE_MODEL = settings.ollama_chat_model
-COLLECTION_PDF   = "repair_manuals"
+COLLECTION_PDF = "repair_manuals"
 COLLECTION_FORUM = "forum_posts"
-TOP_K = 5
+RETRIEVAL_TOP_K = settings.retrieval_top_k
 SNIPPET_LENGTH = 200
 HISTORY_WINDOW = 4  # last N messages passed to LLM (2 user/assistant pairs)
 HISTORY_MESSAGE_MAX_CHARS = 500  # truncate each history message to avoid context bloat
@@ -116,19 +116,19 @@ def search_context(
     pdf_hits = qdrant.query_points(
         collection_name=COLLECTION_PDF,
         query=vector,
-        limit=TOP_K,
+        limit=RETRIEVAL_TOP_K,
         with_payload=True,
         query_filter=query_filter,
     ).points
     forum_hits = qdrant.query_points(
         collection_name=COLLECTION_FORUM,
         query=vector,
-        limit=TOP_K,
+        limit=RETRIEVAL_TOP_K,
         with_payload=True,
         query_filter=query_filter,
     ).points
     merged = sorted(pdf_hits + forum_hits, key=lambda point: point.score, reverse=True)
-    return [point.payload for point in merged[:TOP_K]]
+    return [point.payload for point in merged]
 
 
 def build_user_prompt(question: str, chunks: list[dict]) -> str:
@@ -186,6 +186,7 @@ def extract_sources(chunks: list[dict]) -> list[dict]:
             "source": chunk["source"],
             "page": chunk.get("page"),
             "snippet": chunk["text"][:SNIPPET_LENGTH],
+            "relevance_score": chunk.get("relevance_score"),
         }
         for chunk in chunks
     ]

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
 
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    retrieval_top_k: int = 30
+    reranker_top_k: int = 30
+
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str = "repair_buddy"
