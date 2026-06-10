@@ -15,7 +15,7 @@ class Fetcher:
         self.timeout = timeout
         self.driver = webdriver.Chrome()
 
-    def get(self, url: str) -> webdriver.Chrome:
+    def get(self, url: str, ready_selector: str = PAGE_READY_SELECTOR) -> webdriver.Chrome:
         self.driver.get(url)
         try:
             button = self.driver.find_element(By.CLASS_NAME, "fc-button-label")
@@ -23,14 +23,15 @@ class Fetcher:
         except Exception:
             pass
         WebDriverWait(self.driver, self.timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, PAGE_READY_SELECTOR))
+            EC.presence_of_element_located((By.CSS_SELECTOR, ready_selector))
         )
-        try:
-            WebDriverWait(self.driver, SUMMARY_EXTRA_WAIT).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, SUMMARY_SELECTOR))
-            )
-        except TimeoutException:
-            pass
+        if ready_selector == PAGE_READY_SELECTOR:
+            try:
+                WebDriverWait(self.driver, SUMMARY_EXTRA_WAIT).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, SUMMARY_SELECTOR))
+                )
+            except TimeoutException:
+                pass
         return self.driver
 
     def close(self) -> None:
