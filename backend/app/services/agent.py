@@ -2,12 +2,12 @@ import httpx
 from langgraph.graph import END, START, StateGraph
 from qdrant_client import QdrantClient
 
+from app.config import settings
 from app.db import SessionLocal
 from app.schemas.dialog import DialogState
 from app.services.conversation import PERSISTENT_SLOT_KEYS, merge_slots
 from app.services.llm import provider
 from app.services.nlu import extract_slots
-from app.config import settings
 from app.services.rag import (
     build_user_prompt,
     contextualize_question,

@@ -7,8 +7,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine
-from app.routers import chat
-from app.routers import conversations
+from app.routers import chat, conversations
 from app.services.agent import build_graph
 
 
