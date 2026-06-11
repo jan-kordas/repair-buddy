@@ -2,6 +2,7 @@ import httpx
 from langgraph.graph import END, START, StateGraph
 from qdrant_client import QdrantClient
 
+from app.config import settings
 from app.db import SessionLocal
 from app.schemas.dialog import DialogState
 from app.services.conversation import PERSISTENT_SLOT_KEYS, merge_slots
@@ -15,6 +16,7 @@ from app.services.rag import (
     generate_answer,
     search_context,
 )
+from app.services.reranker import reranker
 
 CANNED_RESPONSES = {
     "greeting": (
@@ -29,9 +31,22 @@ CANNED_RESPONSES = {
 
 DIRECT_REPLY_INTENTS = frozenset(CANNED_RESPONSES.keys())
 
+HISTORY_INTENTS = frozenset({"recap"})
+
+ASK_FOR_CAR_RESPONSE = ("Podaj markę i model swojego auta (VW Golf 4 lub Skoda Octavia I), żebym mógł dopasować odpowiedź do właściwego pojazdu.")
+
 
 def _route_by_intent(state: DialogState) -> str:
-    return "direct_answer" if state.get("intent") in DIRECT_REPLY_INTENTS else "contextualize"
+    intent = state.get("intent")
+    if intent in DIRECT_REPLY_INTENTS:
+        return "direct_answer"
+    if intent in HISTORY_INTENTS:
+        return "history_answer"
+    if intent == "provide_info":
+        return "contextualize"
+    if not state.get("car_make") and not state.get("car_model"):
+        return "ask_for_car"
+    return "contextualize"
 
 
 def build_graph(qdrant: QdrantClient):
@@ -46,11 +61,26 @@ def build_graph(qdrant: QdrantClient):
             "sources": [],
             "model_used": None,
         }
+    
+    async def history_answer(state: DialogState) -> dict:
+        prompt = build_user_prompt(state["question"], [])
+        answer = await generate_answer(prompt, history=state.get("history"))
+        return {"answer": answer, "sources": [], "model_used": provider.model_name}
+    
+    async def ask_for_car(state: DialogState) -> dict:
+        return {"answer": ASK_FOR_CAR_RESPONSE, "sources": [], "model_used": None}
 
     async def contextualize(state: DialogState) -> dict:
+        question = state["question"]
+        symptoms = state.get("symptoms") or []
+        # When user provides car info (provide_info) with accumulated symptoms,
+        # enrich the search query so retrieval finds chunks relevant to the fault,
+        # not just the newly mentioned car model.
+        if symptoms:
+            question = f"{question} (objawy usterki: {', '.join(symptoms)})"
         async with httpx.AsyncClient() as client:
             search_query = await contextualize_question(
-                state["question"], state.get("history") or [], client
+                question, state.get("history") or [], client
             )
         return {"search_query": search_query}
 
@@ -65,20 +95,50 @@ def build_graph(qdrant: QdrantClient):
                 car_make=state.get("car_make"),
                 car_model=state.get("car_model"),
             )
-        return {"chunks": chunks}
+        ranked = reranker.rerank(state["search_query"], chunks, top_k=settings.reranker_top_k)
+        filtered = [c for c in ranked if c.get("relevance_score", 0.0) >= settings.relevance_threshold]
+        seen_parents: set[str] = set()
+        deduped: list[dict] = []
+        for chunk in filtered:
+            pid = chunk.get("parent_id") or chunk.get("source", "")
+            if pid not in seen_parents:
+                seen_parents.add(pid)
+                deduped.append(chunk)
+        return {"chunks": deduped}
+
+    NO_CONTEXT_ANSWER = (
+        "Baza wiedzy nie zawiera pasujących informacji na to pytanie. "
+        "W przypadku specyfikacji technicznych (momenty dokręcania, luzy, dane nastawcze) "
+        "skorzystaj z oficjalnej instrukcji serwisowej lub zapytaj w specjalistycznym warsztacie."
+    )
+
+    NO_CONTEXT_PROMPT_PREFIX = (
+        "[BAZA WIEDZY: brak pasujących dokumentów dla tego pytania. "
+        "Odpowiedz wyłącznie na podstawie historii rozmowy. "
+        "Jeśli historia nie wystarczy — powiedz wprost że nie masz tej informacji w bazie.]\n\n"
+    )
 
     async def generate(state: DialogState) -> dict:
-        prompt = build_user_prompt(state["question"], state["chunks"])
-        answer = await generate_answer(prompt, history=state.get("history"))
+        chunks = state["chunks"]
+        history = state.get("history") or []
+        if not chunks and not history:
+            return {"answer": NO_CONTEXT_ANSWER, "sources": [], "model_used": None}
+        if chunks:
+            prompt = build_user_prompt(state["question"], chunks)
+        else:
+            prompt = NO_CONTEXT_PROMPT_PREFIX + f"Pytanie: {state['question']}"
+        answer = await generate_answer(prompt, history=history)
         return {
             "answer": answer,
-            "sources": extract_sources(state["chunks"]),
+            "sources": extract_sources(chunks),
             "model_used": provider.model_name,
         }
 
     graph = StateGraph(DialogState)
     graph.add_node("nlu", nlu)
     graph.add_node("direct_answer", direct_answer)
+    graph.add_node("history_answer", history_answer)
+    graph.add_node("ask_for_car", ask_for_car)
     graph.add_node("contextualize", contextualize)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
@@ -87,9 +147,16 @@ def build_graph(qdrant: QdrantClient):
     graph.add_conditional_edges(
         "nlu",
         _route_by_intent,
-        {"direct_answer": "direct_answer", "contextualize": "contextualize"},
+        {
+            "direct_answer": "direct_answer",
+            "history_answer": "history_answer",
+            "ask_for_car": "ask_for_car",
+            "contextualize": "contextualize",
+        },
     )
     graph.add_edge("direct_answer", END)
+    graph.add_edge("history_answer", END)
+    graph.add_edge("ask_for_car", END)
     graph.add_edge("contextualize", "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", END)

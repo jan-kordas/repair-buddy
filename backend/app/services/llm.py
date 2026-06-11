@@ -1,6 +1,7 @@
 from typing import Protocol
 
 import httpx
+from openai import AsyncOpenAI
 
 from app.config import settings
 
@@ -55,9 +56,27 @@ class GroqProvider:
             return response.json()["choices"][0]["message"]["content"]
 
 
+class OpenAIProvider:
+    def __init__(self, model: str, api_key: str):
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required when GENERATE_PROVIDER=openai")
+        self.model_name = model
+        self._client = AsyncOpenAI(api_key=api_key)
+
+    async def generate(self, messages: list[dict], max_tokens: int = 800) -> str:
+        response = await self._client.chat.completions.create(
+            model=self.model_name,
+            messages=messages,
+            max_tokens=max_tokens,
+        )
+        return response.choices[0].message.content
+
+
 def _build_provider() -> GenerateProvider:
     if settings.generate_provider == "groq":
         return GroqProvider(model=settings.groq_model, api_key=settings.groq_api_key)
+    if settings.generate_provider == "openai":
+        return OpenAIProvider(model=settings.openai_model, api_key=settings.openai_api_key)
     return OllamaProvider(
         model=settings.ollama_chat_model,
         host=settings.ollama_host,

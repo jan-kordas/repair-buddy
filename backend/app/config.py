@@ -11,13 +11,25 @@ class Settings(BaseSettings):
 
     ollama_host: str = "localhost"
     ollama_port: int = 11434
-    ollama_chat_model: str = "qwen3:8b"
-    ollama_nlu_model: str = "qwen3:8b"
+    ollama_chat_model: str = "gemma3:4b"
+    ollama_nlu_model: str = "gemma3:4b"
     ollama_embedding_model: str = "qwen3-embedding:0.6b"
 
-    generate_provider: str = "ollama"  # "ollama" | "groq"
+    generate_provider: str = "ollama"  # "ollama" | "groq" | "openai"
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    retrieval_top_k: int = 80
+    reranker_top_k: int = 10
+    # Chunks with sigmoid relevance score below this are dropped before LLM generation.
+    # Cross-encoder sigmoid output: >0.5 = model considers chunk relevant.
+    # Hallucination guard for numeric specs is handled by system prompt + code-level
+    # fallback (chunks=[] AND history=[] → hardcoded refusal), so the threshold can
+    # be permissive here to avoid silently dropping relevant context.
+    relevance_threshold: float = 0.5
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432

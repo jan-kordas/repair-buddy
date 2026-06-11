@@ -73,7 +73,7 @@ def run(urls_file: Path, output: Path) -> None:
     saved = 0
     with Fetcher() as fetcher:
         for i, url in enumerate(pending):
-            timeout = random.randint(5,20)
+            timeout = random.randint(1,5)
             log.info("[%d/%d] Scraping %s", i + 1, len(pending), url)
             try:
                 driver = fetcher.get(url)

@@ -7,7 +7,8 @@ Conversational diagnostic assistant for car mechanics. Currently covers Skoda Oc
 - FastAPI + LangGraph + LangChain
 - Qdrant for vectors
 - Postgres for app data and parent chunks (async SQLAlchemy + Alembic)
-- Ollama for local LLM, optional Groq for fast answer generation
+- Cross-encoder reranker (sentence-transformers) over retrieved candidates
+- Ollama for local LLM and embeddings; optional Groq or OpenAI for answer generation
 
 ## How it works
 
@@ -15,8 +16,9 @@ Each `/chat` request goes through a LangGraph pipeline:
 
 1. NLU extracts the intent and slots (car make, model, system, symptoms) from the user message.
 2. If the intent is `greeting` or `off_topic`, the graph returns a canned reply and skips RAG.
-3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, queries Qdrant for matching micro chunks filtered by the tracked slots, and fetches their macro parent chunks from Postgres.
-4. The retrieved parent chunks (broader context than what was matched) plus recent conversation history go to the answer model.
+3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, and queries both Qdrant collections for matching micro chunks filtered by the tracked slots.
+4. A cross-encoder reranks the candidates against the query; chunks below the relevance threshold are dropped and the rest deduplicated by parent. The surviving macro parent chunks are fetched from Postgres.
+5. The retrieved parent chunks (broader context than what was matched) plus recent conversation history go to the answer model. If nothing clears the threshold, the model is told the knowledge base has no match rather than answering from general knowledge.
 
 Slots accumulate across turns in `conversations.slots`, so a follow-up like "how long will it take?" still filters retrieval to the right car.
 
@@ -36,7 +38,7 @@ ollama pull gemma3:4b              # NLU + (optional) local answer generation
 
 You can switch models via `OLLAMA_CHAT_MODEL`, `OLLAMA_NLU_MODEL`, `OLLAMA_EMBEDDING_MODEL` in `.env`.
 
-For faster answers, set `GENERATE_PROVIDER=groq` and `GROQ_API_KEY=...` in `.env`. Groq has a free tier that covers normal usage.
+For faster answers, set `GENERATE_PROVIDER=groq` (or `openai`) and the matching API key in `.env`. Groq has a free tier that covers normal usage.
 
 Run the stack:
 
@@ -131,7 +133,7 @@ brew install ocrmypdf tesseract-lang
 | Collection | Source | Chunking |
 |------------|--------|----------|
 | `repair_manuals` | `data/processed/*.pdf` | tokenizer-aware macro/micro split (Qwen tokenizer); ~1200-token parents to Postgres `chunk_parents`, ~250-token children to Qdrant with `parent_id` |
-| `forum_posts` | `elektroda_scraper/output/threads.jsonl` | posts chunked with thread title prefix, 512 words, 50 overlap |
+| `forum_posts` | `elektroda_scraper/output/threads.jsonl` | parent per thread (AI summary or title) to Postgres `chunk_parents`; one micro per AI summary plus one per cleaned post to Qdrant with `parent_id` |
 
 By default both collections are rebuilt. To re-ingest only one:
 
@@ -140,9 +142,10 @@ uv run python scripts/ingest.py --only pdfs
 uv run python scripts/ingest.py --only forum
 ```
 
-To scrape more forum threads, add URLs to `elektroda_scraper/urls.txt`:
+To scrape more forum threads, discover thread URLs (searches elektroda for the configured topics, appending to `urls.txt`) then scrape their content: (very likely to be excluded by elektroda antibot mechanisms)
 
 ```bash
 cd elektroda_scraper
-uv run python main.py urls.txt
+uv run python gather_urls.py        # discover + append URLs to urls.txt
+uv run python main.py urls.txt      # scrape thread content to output/threads.jsonl
 ```

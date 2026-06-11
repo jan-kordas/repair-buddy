@@ -5,6 +5,7 @@ class Source(BaseModel):
     source: str
     page: int | None
     snippet: str
+    relevance_score: float | None = None
 
 
 class ChatRequest(BaseModel):
