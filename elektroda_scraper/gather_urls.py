@@ -100,7 +100,7 @@ def run(
                     log.info("  No threads found on page %d — stopping pagination.", page)
                     break
 
-                new_on_page = 0
+                page_urls: list[str] = []
                 for thread in threads:
                     if len(collected) >= limit:
                         break
@@ -110,7 +110,7 @@ def run(
                         continue
                     collected.append(thread.url)
                     known_urls.add(thread.url)
-                    new_on_page += 1
+                    page_urls.append(thread.url)
                     log.info(
                         "  + %s (solved=%s replies=%d)",
                         thread.title[:80],
@@ -118,7 +118,10 @@ def run(
                         thread.reply_count,
                     )
 
-                log.info("  Page %d: %d new URL(s) collected.", page, new_on_page)
+                # Persist after each page so an interrupt never loses progress.
+                if page_urls and not dry_run:
+                    append_urls(page_urls, output)
+                log.info("  Page %d: %d new URL(s) collected.", page, len(page_urls))
                 if page < max_pages:
                     time.sleep(random.randint(3, 8))
 
@@ -128,15 +131,12 @@ def run(
         log.info("No new URLs found.")
         return
 
-    log.info("Found %d new URL(s).", len(collected))
-
     if dry_run:
         print("\n--- DRY RUN — not saving ---")
         for url in collected:
             print(url)
     else:
-        append_urls(collected, output)
-        log.info("Appended %d URL(s) to %s", len(collected), output)
+        log.info("Saved %d new URL(s) to %s (written incrementally).", len(collected), output)
 
 
 def main() -> None:

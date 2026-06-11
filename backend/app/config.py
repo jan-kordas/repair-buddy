@@ -22,8 +22,14 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
 
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-    retrieval_top_k: int = 30
-    reranker_top_k: int = 30
+    retrieval_top_k: int = 50
+    reranker_top_k: int = 10
+    # Chunks with sigmoid relevance score below this are dropped before LLM generation.
+    # Cross-encoder sigmoid output: >0.5 = model considers chunk relevant.
+    # Hallucination guard for numeric specs is handled by system prompt + code-level
+    # fallback (chunks=[] AND history=[] → hardcoded refusal), so the threshold can
+    # be permissive here to avoid silently dropping relevant context.
+    relevance_threshold: float = 0.5
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432

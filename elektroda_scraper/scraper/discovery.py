@@ -13,14 +13,62 @@ SEARCH_BASE = "https://www.elektroda.pl/rtvforum/find.php"
 # If elektroda changes their layout, adjust this selector.
 LISTING_READY_SELECTOR = 'a[href*="/rtvforum/topic"]'
 
+SEARCH_TOPICS = [
+    # Ogólne
+    "usterka naprawa",
+    "diagnoza błąd OBD",
+    "nie odpala rozruch problem",
+    # Silnik / układ napędowy
+    "turbo słaba moc usterka",
+    "tryb awaryjny limp mode",
+    "EGR usterka",
+    "wtryskiwacze problem",
+    "pasek rozrządu wymiana",
+    "alternator ładowanie",
+    "rozrusznik usterka",
+    "skrzynia biegów problem",
+    "sprzęgło wymiana",
+    "dymi czarno niebieski dym",
+    "zużywa olej",
+    # Układ chłodzenia
+    "przegrzewa się temperatura silnika",
+    "pompa wody usterka",
+    "termostat wymiana",
+    "wentylator chłodnicy nie działa",
+    "chłodnica wyciek płyn chłodniczy",
+    # Zawieszenie
+    "zawieszenie usterka",
+    "wahacze wymiana",
+    "amortyzatory stukanie",
+    "łożysko koła szum",
+    "przeguby półoś stukanie pukanie",
+    "układ kierowniczy luz",
+    # Hamulce
+    "hamulce usterka miękki pedał",
+    "ABS błąd lampka",
+    "zacisk hamulcowy naprawa",
+    # Elektryka / czujniki
+    "sterownik ECU problem",
+    "czujnik MAF przepływomierz",
+    "czujnik lambda sonda",
+    "lampka kontrolna silnika",
+    # Serwis
+    "przegląd serwis olej",
+    "DPF filtr cząstek stałych",
+]
+
+CAR_VARIANTS = [
+    "golf 4",
+    "golf iv",
+    "octavia 1",
+    "octavia I",
+    "skoda octavia 1",
+]
+
 SEARCH_QUERIES = [
-    "golf 4 usterka",
-    "golf iv naprawa",
-    "golf 4 diagnoza",
-    "octavia 1 usterka",
-    "octavia I naprawa",
-    "octavia 1 diagnoza",
-    "skoda octavia 1 usterka",
+    f"{car} {topic}"
+    for car in CAR_VARIANTS
+    for topic in SEARCH_TOPICS
 ]
 
 DIAGNOSTIC_KEYWORDS = [

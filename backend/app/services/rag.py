@@ -17,22 +17,24 @@ COLLECTION_FORUM = "forum_posts"
 RETRIEVAL_TOP_K = settings.retrieval_top_k
 SNIPPET_LENGTH = 200
 HISTORY_WINDOW = 10  # last N messages passed to LLM (5 user/assistant pairs)
-HISTORY_MESSAGE_MAX_CHARS = 500  # truncate each history message to avoid context bloat
+HISTORY_MESSAGE_MAX_CHARS = 1000  # truncate each history message to avoid context bloat
 
 OLLAMA_BASE = f"http://{settings.ollama_host}:{settings.ollama_port}"
 
-CONTEXTUALIZE_PROMPT = """Rewrite the user's latest question into a standalone form, using context from the conversation history to resolve references ("it", "this", "that", pronouns, ellipsis).
+CONTEXTUALIZE_PROMPT = """Rewrite the user's latest question into a standalone search query, using context from the conversation history to resolve references ("it", "this", "that", pronouns, ellipsis) and preserve the main fault being diagnosed.
 
 Rules:
 - Preserve the language of the original question.
 - Use ONLY information present in the history — do NOT invent details, prices, model versions, or anything not explicitly mentioned.
 - If the question is already standalone, return it verbatim.
+- If the latest message is a status update ("checked X, it's fine") rather than a question, expand it into a diagnostic question that includes the main fault from earlier in the conversation.
 - Output ONLY the rewritten question — no preamble, no quotes, no explanation, no thinking.
 
 Examples:
 History: User asked "jak wymienić rozrusznik w golf 4". Question: "ile to kosztuje?" -> "ile kosztuje wymiana rozrusznika w golf 4?"
 History: User asked "octavia nie odpala". Question: "co sprawdzić?" -> "co sprawdzić gdy octavia nie odpala?"
 History: empty. Question: "jak wymienić termostat" -> "jak wymienić termostat"
+History: User asked "temperatura rośnie na postoju w Skoda Octavia I". Question: "Wentylator kręci się, płyn ok" -> "Skoda Octavia I — temperatura silnika rośnie na postoju, wentylator chłodnicy sprawny, płyn w normie — co może powodować przegrzewanie?"
 """
 
 
@@ -51,6 +53,7 @@ Answering:
 - Ground answers in the provided context when possible.
 - If context contains relevant information, use it even if it does not perfectly match the question.
 - If context is unrelated or empty, say clearly that your knowledge base does not contain information on this topic. Do NOT generate answers from general knowledge.
+- STRICT RULE: Never state specific numerical values (torque values, pressures, capacities, clearances, timing specs, part numbers) unless they appear verbatim in the provided context chunks. If the user asks for a spec and it is not in the context, say you don't have that data and recommend the official service manual.
 - When manual and forum sources conflict, prefer the manual.
 - Do NOT cite source labels or filenames — the UI shows sources separately.
 
@@ -157,6 +160,7 @@ async def search_context(
         parent = parents_by_id.get(payload.get("parent_id"))
         if parent:
             chunks.append({
+                "parent_id": str(parent.id),
                 "source": payload["source"],
                 "page": parent.page_start,
                 "page_end": parent.page_end,
@@ -234,7 +238,7 @@ def extract_sources(chunks: list[dict]) -> list[dict]:
     return [
         {
             "source": chunk["source"],
-            "page": chunk.get("page"),
+            "page": chunk.get("page") or None,
             "snippet": chunk["text"][:SNIPPET_LENGTH],
             "relevance_score": chunk.get("relevance_score"),
         }
