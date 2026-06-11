@@ -1,9 +1,16 @@
+import asyncio
+import logging
 from typing import Protocol
 
 import httpx
-from openai import AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
+
+_OPENAI_RETRY_STATUSES = (408, 425, 429, 431, 500, 502, 503, 504)
+_OPENAI_MAX_ATTEMPTS = 3
 
 
 class GenerateProvider(Protocol):
@@ -61,15 +68,30 @@ class OpenAIProvider:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required when GENERATE_PROVIDER=openai")
         self.model_name = model
-        self._client = AsyncOpenAI(api_key=api_key)
+        self._client = AsyncOpenAI(api_key=api_key, max_retries=3)
 
     async def generate(self, messages: list[dict], max_tokens: int = 800) -> str:
-        response = await self._client.chat.completions.create(
-            model=self.model_name,
-            messages=messages,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content
+        last_error: APIStatusError | None = None
+        for attempt in range(_OPENAI_MAX_ATTEMPTS):
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content
+            except APIStatusError as error:
+                if error.status_code not in _OPENAI_RETRY_STATUSES:
+                    raise
+                last_error = error
+                backoff = 0.5 * (2 ** attempt)
+                log.warning(
+                    "OpenAI %s on attempt %d/%d, retrying in %.1fs",
+                    error.status_code, attempt + 1, _OPENAI_MAX_ATTEMPTS, backoff,
+                )
+                await asyncio.sleep(backoff)
+        assert last_error is not None
+        raise last_error
 
 
 def _build_provider() -> GenerateProvider:
