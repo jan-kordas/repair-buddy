@@ -21,15 +21,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
-    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    # Alternative: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" (lighter, weaker on Polish).
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
     retrieval_top_k: int = 80
     reranker_top_k: int = 10
-    # Chunks with sigmoid relevance score below this are dropped before LLM generation.
-    # Cross-encoder sigmoid output: >0.5 = model considers chunk relevant.
-    # Hallucination guard for numeric specs is handled by system prompt + code-level
-    # fallback (chunks=[] AND history=[] → hardcoded refusal), so the threshold can
-    # be permissive here to avoid silently dropping relevant context.
-    relevance_threshold: float = 0.5
+    # Min reranker score to reach the LLM — scale depends on the model, tune in .env.
+    # BAAI/bge-reranker-v2-m3: 1e-3 | cross-encoder/mmarco-*: 0.5
+    relevance_threshold: float = 1e-3
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432

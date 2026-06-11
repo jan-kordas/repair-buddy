@@ -157,6 +157,7 @@ async def search_context(
     chunks = []
     for hit in merged:
         payload = hit.payload
+        micro_text = payload.get("text", "")
         parent = parents_by_id.get(payload.get("parent_id"))
         if parent:
             chunks.append({
@@ -166,8 +167,11 @@ async def search_context(
                 "page_end": parent.page_end,
                 "section": parent.section,
                 "text": parent.text,
+                "rerank_text": micro_text,
             })
         else:
+            payload = dict(payload)
+            payload.setdefault("rerank_text", micro_text)
             chunks.append(payload)
     return chunks
 
