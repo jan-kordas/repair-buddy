@@ -39,6 +39,7 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - OLLAMA_HOST=host.docker.internal
+      - LLAMACPP_HOST=host.docker.internal
       - POSTGRES_HOST=postgres
     depends_on:
       - qdrant

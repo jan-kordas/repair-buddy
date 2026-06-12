@@ -7,7 +7,7 @@ Conversational diagnostic assistant for car mechanics. Currently covers Skoda Oc
 - FastAPI + LangGraph + LangChain
 - Qdrant for vectors
 - Postgres for app data and parent chunks (async SQLAlchemy + Alembic)
-- Cross-encoder reranker (sentence-transformers) over retrieved candidates
+- Cross-encoder reranker (BGE-reranker-v2-m3) over retrieved candidates — in-process, via a native llama.cpp server, or disabled (see [Reranker modes](#reranker-modes))
 - Ollama for local LLM and embeddings; optional Groq or OpenAI for answer generation
 
 ## How it works
@@ -17,7 +17,7 @@ Each `/chat` request goes through a LangGraph pipeline:
 1. NLU extracts the intent and slots (car make, model, system, symptoms) from the user message.
 2. If the intent is `greeting` or `off_topic`, the graph returns a canned reply and skips RAG.
 3. Otherwise the graph rewrites the question into a standalone form (resolves "it", "this", etc. from history), embeds it, and queries both Qdrant collections for matching micro chunks filtered by the tracked slots.
-4. A cross-encoder reranks the candidates against the query; chunks below the relevance threshold are dropped and the rest deduplicated by parent. The surviving macro parent chunks are fetched from Postgres.
+4. A cross-encoder reranks the candidates against the query (see [Reranker modes](#reranker-modes)); chunks below the relevance threshold are dropped and the rest deduplicated by parent. The surviving macro parent chunks are fetched from Postgres.
 5. The retrieved parent chunks (broader context than what was matched) plus recent conversation history go to the answer model. If nothing clears the threshold, the model is told the knowledge base has no match rather than answering from general knowledge.
 
 Slots accumulate across turns in `conversations.slots`, so a follow-up like "how long will it take?" still filters retrieval to the right car.
@@ -26,6 +26,7 @@ Slots accumulate across turns in `conversations.slots`, so a follow-up like "how
 
 - Docker + Docker Compose
 - Ollama running locally on port `11434`
+- Optional: llama.cpp running locally on port `8081` for fast reranking (see [Reranker modes](#reranker-modes))
 
 ## Setup
 
@@ -63,7 +64,32 @@ uv run python scripts/ingest.py            # chunk + embed PDFs and forum into Q
 
 `prepare_dataset.py` is idempotent: re-running only processes new files. `ingest.py` rebuilds both Qdrant collections; see [Data ingestion](#data-ingestion) for selective re-ingest.
 
-API is at `http://localhost:8000`. Adminer (DB browser) at `http://localhost:8080`.
+Frontend is at `http://localhost:3000`, API at `http://localhost:8000`, Adminer (DB browser) at `http://localhost:8080`.
+
+### Reranker modes
+
+Retrieved candidates are reranked by `BAAI/bge-reranker-v2-m3` (a multilingual cross-encoder that handles Polish well). `RERANKER_MODE` in `.env` selects how it runs:
+
+| Mode | What runs | Speed | Notes |
+|------|-----------|-------|-------|
+| `llamacpp` | native `llama-server` on the host (Metal GPU) | ~1-2 s for 24 candidates | recommended on Apple Silicon; falls back to vector order (no scores) if the server is unreachable |
+| `local` | CrossEncoder inside the backend container (CPU) | ~1 s per candidate | no extra services, but Docker on macOS has no GPU access; adds ~1 GB RAM to the container |
+| `off` | nothing | instant | chunks keep Qdrant vector-score order; `RELEVANCE_THRESHOLD` is not applied |
+
+For `llamacpp` mode, install and start the server (first run downloads the ~600 MB GGUF):
+
+```bash
+brew install llama.cpp
+llama-server -hf gpustack/bge-reranker-v2-m3-GGUF:Q8_0 --rerank --port 8081
+```
+
+llama.cpp returns raw logits; the backend sigmoid-normalizes them to `[0,1]` so `RELEVANCE_THRESHOLD` means the same in both `llamacpp` and `local` modes.
+
+Tuning knobs in `.env`:
+
+- `RETRIEVAL_TOP_K` — candidates fetched per Qdrant query before reranking (in `local` mode this directly sets latency: ~1 s per candidate on CPU)
+- `RERANKER_TOP_K` — chunks passed to the answer model after reranking
+- `RELEVANCE_THRESHOLD` — chunks scoring below this are dropped before generation
 
 ### Optional: LangSmith tracing
 

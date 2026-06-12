@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings
 
@@ -21,9 +22,14 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
+    # "llamacpp" mode falls back to Qdrant vector order if the server is
+    # unreachable; "off" skips reranking entirely and ignores relevance_threshold.
+    reranker_mode: Literal["local", "llamacpp", "off"] = "local"
+    llamacpp_host: str = "localhost"
+    llamacpp_port: int = 8081
     # Alternative: "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1" (lighter, weaker on Polish).
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
-    retrieval_top_k: int = 80
+    retrieval_top_k: int = 24
     reranker_top_k: int = 10
     # Min reranker score to reach the LLM — scale depends on the model, tune in .env.
     # BAAI/bge-reranker-v2-m3: 1e-3 | cross-encoder/mmarco-*: 0.5

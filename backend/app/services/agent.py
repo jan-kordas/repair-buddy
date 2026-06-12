@@ -16,7 +16,7 @@ from app.services.rag import (
     generate_answer,
     search_context,
 )
-from app.services.reranker import reranker
+from app.services.reranker import rerank_and_filter
 
 CANNED_RESPONSES = {
     "greeting": (
@@ -95,8 +95,9 @@ def build_graph(qdrant: QdrantClient):
                 car_make=state.get("car_make"),
                 car_model=state.get("car_model"),
             )
-        ranked = reranker.rerank(state["search_query"], chunks, top_k=settings.reranker_top_k)
-        filtered = [c for c in ranked if c.get("relevance_score", 0.0) >= settings.relevance_threshold]
+        filtered = await rerank_and_filter(
+            state["search_query"], chunks, settings.reranker_top_k
+        )
         seen_parents: set[str] = set()
         deduped: list[dict] = []
         for chunk in filtered:
