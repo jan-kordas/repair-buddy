@@ -80,8 +80,10 @@ For `llamacpp` mode, install and start the server (first run downloads the ~600 
 
 ```bash
 brew install llama.cpp
-llama-server -hf gpustack/bge-reranker-v2-m3-GGUF:Q8_0 --rerank --port 8081
+llama-server -hf gpustack/bge-reranker-v2-m3-GGUF:Q8_0 --rerank --port 8081 -ub 4096 -b 4096 -c 8192
 ```
+
+`-ub`/`-b` raise the physical/logical batch from the 512-token default; without them llama-server returns HTTP 500 when the combined query + document token count of any single candidate exceeds 512, which long forum posts routinely do. `-c` widens the context window for the same reason. The backend logs the 500 and falls back to Qdrant vector order (no scores), so you'll see a chat answer with sources but no relevance percentages — that's the signal you forgot the flags.
 
 llama.cpp returns raw logits; the backend sigmoid-normalizes them to `[0,1]` so `RELEVANCE_THRESHOLD` means the same in both `llamacpp` and `local` modes.
 
