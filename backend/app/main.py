@@ -9,7 +9,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine
 from app.routers import chat, conversations
-from app.services.agent import build_graph
+from app.services.graph import build_graph
 from app.services.reranker import reranker
 
 
@@ -17,8 +17,7 @@ from app.services.reranker import reranker
 async def lifespan(app: FastAPI):
     app.state.qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
     app.state.graph = build_graph(app.state.qdrant)
-    # Load the cross-encoder ahead of the first request so it doesn't
-    # pay for model init. Off the event loop — startup stays responsive.
+    # warm up the cross-encoder in the background before the first request
     if settings.reranker_mode == "local":
         app.state.reranker_warmup = asyncio.create_task(asyncio.to_thread(reranker.warmup))
     yield
@@ -29,6 +28,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="repair-buddy", lifespan=lifespan)
 app.include_router(chat.router)
 app.include_router(conversations.router)
+
 
 @app.get("/health")
 def health():
