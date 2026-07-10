@@ -13,3 +13,5 @@ data/processed/*
 !data/processed/.gitkeep
 elektroda_scraper/.venv
 BACKLOG.md
+frontend/node_modules/
+frontend/dist/
