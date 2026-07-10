@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
     retrieval_top_k: int = 24
     reranker_top_k: int = 10
-    # Min reranker score to reach the LLM — scale depends on the model, tune in .env.
+    # min reranker score to reach the LLM, scale depends on the model:
     # BAAI/bge-reranker-v2-m3: 1e-3 | cross-encoder/mmarco-*: 0.5
     relevance_threshold: float = 1e-3
 

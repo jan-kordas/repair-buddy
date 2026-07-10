@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from uuid import UUID, uuid5, NAMESPACE_URL
 
@@ -41,7 +42,7 @@ FORUM_POST_MAX_TOKENS = 300
 
 
 def _embed_batch(client: httpx.Client, batch: list[str]) -> list[list[float]]:
-    truncated = [t[:MAX_EMBED_CHARS] for t in batch]
+    truncated = [text[:MAX_EMBED_CHARS] for text in batch]
     response = client.post(OLLAMA_URL, json={"model": EMBEDDING_MODEL, "input": truncated})
     response.raise_for_status()
     return response.json()["embeddings"]
@@ -56,11 +57,11 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
                 embeddings.extend(_embed_batch(client, batch))
             except httpx.HTTPStatusError as exc:
                 log.warning("Batch [%d:%d] failed (%s), retrying per item.", start, start + len(batch), exc.response.status_code)
-                for i, text in enumerate(batch):
+                for offset, text in enumerate(batch):
                     try:
                         embeddings.extend(_embed_batch(client, [text]))
                     except httpx.HTTPStatusError:
-                        log.error("Skipping chunk %d (embedding failed): %.120r", start + i, text[:120])
+                        log.error("Skipping chunk %d (embedding failed): %.120r", start + offset, text[:120])
                         embeddings.append([0.0] * (len(embeddings[0]) if embeddings else 1))
             progress.update(len(batch))
     return embeddings
@@ -124,7 +125,7 @@ async def ingest_pdfs(qdrant: QdrantClient, vector_size: int) -> None:
     recreate_collection(qdrant, COLLECTION_PDF, vector_size)
     pdf_paths = sorted(PDF_DIR.glob("*.pdf"))
     if not pdf_paths:
-        log.warning("No PDFs found in %s — run scripts/prepare_dataset.py first.", PDF_DIR)
+        log.warning("No PDFs found in %s, run scripts/prepare_dataset.py first.", PDF_DIR)
         return
 
     async with SessionLocal() as session:
@@ -148,8 +149,8 @@ async def ingest_pdfs(qdrant: QdrantClient, vector_size: int) -> None:
 
 def load_threads(path: Path) -> list[dict]:
     threads = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
+    with path.open(encoding="utf-8") as file:
+        for line in file:
             line = line.strip()
             if line:
                 threads.append(json.loads(line))
@@ -169,9 +170,7 @@ def _split_post_into_chunks(text: str) -> list[str]:
     """Split a single post into sub-chunks if it exceeds FORUM_POST_MAX_TOKENS."""
     if count_tokens(text) <= FORUM_POST_MAX_TOKENS:
         return [text]
-    # Split on paragraph boundaries first, then sentence boundaries
-    import re
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
     chunks: list[str] = []
     buffer: list[str] = []
     buffer_tokens = 0
@@ -190,18 +189,8 @@ def _split_post_into_chunks(text: str) -> list[str]:
 def build_forum_parents_and_micros(
     threads: list[dict],
 ) -> tuple[list[ChunkParent], list[dict]]:
-    """
-    New parent-child strategy for forum threads:
-
-    Parent (stored in ChunkParent, text = ai_summary or title):
-      Represents the whole thread. Returned as LLM context when any micro
-      from that thread is retrieved.
-
-    Micros (stored in Qdrant forum_posts collection):
-      - One micro per ai_summary (best semantic signal, embedded for search)
-      - One micro per cleaned post (individual answers, also embedded)
-      All micros carry parent_id → ChunkParent row.
-    """
+    """Build one parent per thread (ai_summary or title) and micros per
+    ai_summary and per cleaned post, all linked by parent_id."""
     parents: list[ChunkParent] = []
     micros: list[dict] = []
     skipped = 0
@@ -215,7 +204,6 @@ def build_forum_parents_and_micros(
         summary = clean_summary(raw_summary)
         posts = thread.get("posts", [])
 
-        # Parent text = ai_summary when available; else title (ensures non-empty)
         parent_text = summary if summary else title
         if not parent_text:
             skipped += 1
@@ -244,11 +232,9 @@ def build_forum_parents_and_micros(
             "car_models": car_models,
         }
 
-        # Micro 1: ai_summary (if present) — semantically dense, best for search
         if summary:
             micros.append({"text": summary, **base_payload})
 
-        # Micros 2+: one per post (cleaned, per-post boundary respected)
         any_post = False
         for post in posts:
             raw = post.get("content", "")
@@ -287,7 +273,7 @@ def upsert_forum(
 async def ingest_forum(qdrant: QdrantClient, vector_size: int) -> None:
     recreate_collection(qdrant, COLLECTION_FORUM, vector_size)
     if not JSONL_PATH.exists():
-        log.warning("Elektroda JSONL not found at %s — skipping.", JSONL_PATH)
+        log.warning("Elektroda JSONL not found at %s, skipping.", JSONL_PATH)
         return
     threads = load_threads(JSONL_PATH)
     log.info("Loaded %d thread(s) from elektroda.", len(threads))
@@ -295,17 +281,15 @@ async def ingest_forum(qdrant: QdrantClient, vector_size: int) -> None:
     parents, micros = build_forum_parents_and_micros(threads)
 
     async with SessionLocal() as session:
-        # Remove existing forum parents (doc_type="forum") before re-ingesting
-        from sqlalchemy import delete as sa_delete
         await session.execute(
-            sa_delete(ChunkParent).where(ChunkParent.doc_type == "forum")
+            delete(ChunkParent).where(ChunkParent.doc_type == "forum")
         )
         session.add_all(parents)
         await session.commit()
 
     log.info("Embedding %d forum micros...", len(micros))
     if micros:
-        embeddings = generate_embeddings([m["text"] for m in micros])
+        embeddings = generate_embeddings([micro["text"] for micro in micros])
         upsert_forum(qdrant, micros, embeddings)
 
 

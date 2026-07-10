@@ -43,14 +43,14 @@ export function Sidebar({ health, conversations, activeId, onSelect, onNewChat }
           <>
             <p className="sb-section-label">Historia</p>
             <ul className="sb-conv-list">
-              {conversations.map((c) => (
-                <li key={c.id}>
+              {conversations.map((conv) => (
+                <li key={conv.id}>
                   <button
-                    className={`sb-conv-item ${c.id === activeId ? 'sb-conv-item--active' : ''}`}
-                    onClick={() => onSelect(c.id)}
+                    className={`sb-conv-item ${conv.id === activeId ? 'sb-conv-item--active' : ''}`}
+                    onClick={() => onSelect(conv.id)}
                   >
                     <span className="sb-conv-icon">💬</span>
-                    <span className="sb-conv-title">{c.title}</span>
+                    <span className="sb-conv-title">{conv.title}</span>
                   </button>
                 </li>
               ))}

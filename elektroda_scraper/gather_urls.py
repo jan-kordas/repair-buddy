@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import random
 import time
@@ -7,7 +8,6 @@ from pathlib import Path
 from scraper.discovery import (
     LISTING_READY_SELECTOR,
     SEARCH_QUERIES,
-    ThreadInfo,
     build_search_url,
     meets_criteria,
     parse_listing,
@@ -29,7 +29,6 @@ def load_known_urls(urls_path: Path, jsonl_path: Path) -> set[str]:
             if line and not line.startswith("#"):
                 known.add(line)
     if jsonl_path.exists():
-        import json
         for line in jsonl_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if line:
@@ -48,11 +47,11 @@ def append_urls(urls: list[str], path: Path) -> None:
         and path.stat().st_size > 0
         and path.read_bytes()[-1:] != b"\n"
     )
-    with path.open("a", encoding="utf-8") as f:
+    with path.open("a", encoding="utf-8") as file:
         if needs_newline:
-            f.write("\n")
+            file.write("\n")
         for url in urls:
-            f.write(url + "\n")
+            file.write(url + "\n")
 
 
 def run(
@@ -97,7 +96,7 @@ def run(
                     log.info("HTML dumped to %s", dump_html)
                 threads = parse_listing(html)
                 if not threads:
-                    log.info("  No threads found on page %d — stopping pagination.", page)
+                    log.info("  No threads found on page %d, stopping pagination.", page)
                     break
 
                 page_urls: list[str] = []
@@ -132,7 +131,7 @@ def run(
         return
 
     if dry_run:
-        print("\n--- DRY RUN — not saving ---")
+        print("\n--- DRY RUN, not saving ---")
         for url in collected:
             print(url)
     else:

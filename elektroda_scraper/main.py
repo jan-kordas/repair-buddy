@@ -32,8 +32,8 @@ def resolve_output(output: Path) -> bool:
 
     scraped = load_scraped_urls(output)
     print(f"\nOutput file already exists: {output} ({len(scraped)} thread(s) scraped)")
-    print("  [o] Overwrite — start fresh, scrape all URLs")
-    print("  [a] Append   — skip already scraped URLs")
+    print("  [o] Overwrite: start fresh, scrape all URLs")
+    print("  [a] Append:   skip already scraped URLs")
     print("  [q] Quit")
 
     while True:
@@ -43,7 +43,7 @@ def resolve_output(output: Path) -> bool:
             log.info("Output file truncated, starting fresh.")
             return True
         if choice == "a":
-            log.info("Append mode — %d URL(s) already scraped will be skipped.", len(scraped))
+            log.info("Append mode: %d URL(s) already scraped will be skipped.", len(scraped))
             return True
         if choice == "q":
             return False
@@ -61,9 +61,9 @@ def run(urls_file: Path, output: Path) -> None:
         return
 
     already_scraped = load_scraped_urls(output) if output.exists() else set()
-    pending = [u for u in urls if u not in already_scraped]
+    pending = [url for url in urls if url not in already_scraped]
 
-    log.info("Loaded %d URL(s) from %s — %d new, %d already scraped.",
+    log.info("Loaded %d URL(s) from %s: %d new, %d already scraped.",
              len(urls), urls_file, len(pending), len(already_scraped))
 
     if not pending:
@@ -72,9 +72,9 @@ def run(urls_file: Path, output: Path) -> None:
 
     saved = 0
     with Fetcher() as fetcher:
-        for i, url in enumerate(pending):
-            timeout = random.randint(1,5)
-            log.info("[%d/%d] Scraping %s", i + 1, len(pending), url)
+        for index, url in enumerate(pending):
+            timeout = random.randint(1, 5)
+            log.info("[%d/%d] Scraping %s", index + 1, len(pending), url)
             try:
                 driver = fetcher.get(url)
                 thread = thread_stub_from_url(url)
@@ -83,11 +83,11 @@ def run(urls_file: Path, output: Path) -> None:
             except Exception as exc:
                 log.error("Failed to scrape %s: %s", url, exc)
 
-            if i < len(pending) - 1:
+            if index < len(pending) - 1:
                 log.info("Waiting %d seconds to avoid rate limits...", timeout)
                 time.sleep(timeout)
 
-    log.info("Done — saved %d new thread(s) to %s", saved, output)
+    log.info("Done, saved %d new thread(s) to %s", saved, output)
 
 
 def main() -> None:
