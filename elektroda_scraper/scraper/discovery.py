@@ -90,9 +90,9 @@ DIAGNOSTIC_KEYWORDS = [
 ]
 
 _SOLVED_RE = re.compile(r"\[rozwiązano\]|\[solved\]", re.IGNORECASE)
-# Match Golf 4 / Golf IV — word boundary after 4/iv prevents Golf 5, Golf 45, etc.
+# Match Golf 4 / Golf IV, word boundary after 4/iv prevents Golf 5, Golf 45, etc.
 _GOLF4_RE = re.compile(r"\bgolf\s*(4|iv)\b", re.IGNORECASE)
-# Match Octavia 1 / Octavia I — \b after single I rejects II, III
+# Match Octavia 1 / Octavia I, \b after single I rejects II, III
 _OCTAVIA1_RE = re.compile(r"\boctavia\s*(1|I)\b", re.IGNORECASE)
 
 

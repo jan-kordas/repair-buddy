@@ -6,9 +6,9 @@ from app.config import settings
 from app.db import SessionLocal
 from app.schemas.dialog import DialogState
 from app.services.conversation import PERSISTENT_SLOT_KEYS, merge_slots
-from app.services.llm import provider
+from app.services.generation import provider
 from app.services.nlu import extract_slots
-from app.services.rag import (
+from app.services.retrieval import (
     build_user_prompt,
     contextualize_question,
     embed_question,
@@ -33,7 +33,10 @@ DIRECT_REPLY_INTENTS = frozenset(CANNED_RESPONSES.keys())
 
 HISTORY_INTENTS = frozenset({"recap"})
 
-ASK_FOR_CAR_RESPONSE = ("Podaj markę i model swojego auta (VW Golf 4 lub Skoda Octavia I), żebym mógł dopasować odpowiedź do właściwego pojazdu.")
+ASK_FOR_CAR_RESPONSE = (
+    "Podaj markę i model swojego auta (VW Golf 4 lub Skoda Octavia I), "
+    "żebym mógł dopasować odpowiedź do właściwego pojazdu."
+)
 
 
 def _route_by_intent(state: DialogState) -> str:
@@ -61,21 +64,19 @@ def build_graph(qdrant: QdrantClient):
             "sources": [],
             "model_used": None,
         }
-    
+
     async def history_answer(state: DialogState) -> dict:
         prompt = build_user_prompt(state["question"], [])
         answer = await generate_answer(prompt, history=state.get("history"))
         return {"answer": answer, "sources": [], "model_used": provider.model_name}
-    
+
     async def ask_for_car(state: DialogState) -> dict:
         return {"answer": ASK_FOR_CAR_RESPONSE, "sources": [], "model_used": None}
 
     async def contextualize(state: DialogState) -> dict:
         question = state["question"]
         symptoms = state.get("symptoms") or []
-        # When user provides car info (provide_info) with accumulated symptoms,
-        # enrich the search query so retrieval finds chunks relevant to the fault,
-        # not just the newly mentioned car model.
+        # include accumulated symptoms so retrieval targets the fault, not just the car
         if symptoms:
             question = f"{question} (objawy usterki: {', '.join(symptoms)})"
         async with httpx.AsyncClient() as client:
@@ -101,9 +102,9 @@ def build_graph(qdrant: QdrantClient):
         seen_parents: set[str] = set()
         deduped: list[dict] = []
         for chunk in filtered:
-            pid = chunk.get("parent_id") or chunk.get("source", "")
-            if pid not in seen_parents:
-                seen_parents.add(pid)
+            parent_id = chunk.get("parent_id") or chunk.get("source", "")
+            if parent_id not in seen_parents:
+                seen_parents.add(parent_id)
                 deduped.append(chunk)
         return {"chunks": deduped}
 

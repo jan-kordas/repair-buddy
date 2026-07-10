@@ -5,7 +5,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.db import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, Source
 from app.services import conversation as conversation_service
-from app.services.agent import ask
+from app.services.graph import ask
 
 router = APIRouter(tags=["chat"])
 

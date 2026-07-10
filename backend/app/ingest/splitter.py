@@ -38,7 +38,7 @@ class Micro:
 
 
 def split_macros(text: str) -> list[Macro]:
-    paragraphs = [p.strip() for p in PARAGRAPH_BREAK.split(text) if p.strip()]
+    paragraphs = [part.strip() for part in PARAGRAPH_BREAK.split(text) if part.strip()]
     macros: list[Macro] = []
     buffer: list[str] = []
     buffer_tokens = 0

@@ -10,8 +10,8 @@ export function renderMarkdown(text: string): string {
     if (inOl) { result.push('</ol>'); inOl = false; }
   };
 
-  const inlineFormat = (s: string) =>
-    s
+  const inlineFormat = (value: string) =>
+    value
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')

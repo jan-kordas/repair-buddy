@@ -98,5 +98,5 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _extract_thread_id(url: str) -> str:
-    parts = [p for p in url.rstrip("/").split("/") if p]
+    parts = [part for part in url.rstrip("/").split("/") if part]
     return parts[-1] if parts else url

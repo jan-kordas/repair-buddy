@@ -26,15 +26,15 @@ def infer_language(filename: str) -> str:
 
 def has_text_layer(pdf_path: Path) -> bool:
     with fitz.open(pdf_path) as doc:
-        n = len(doc)
-        if n == 0:
+        page_count = len(doc)
+        if page_count == 0:
             return False
-        if n <= TEXT_SAMPLE_PAGES:
-            indexes = list(range(n))
+        if page_count <= TEXT_SAMPLE_PAGES:
+            indexes = list(range(page_count))
         else:
-            step = n // (TEXT_SAMPLE_PAGES + 1)
-            indexes = [step * (i + 1) for i in range(TEXT_SAMPLE_PAGES)]
-        total = sum(len(doc[i].get_text().strip()) for i in indexes)
+            step = page_count // (TEXT_SAMPLE_PAGES + 1)
+            indexes = [step * (sample + 1) for sample in range(TEXT_SAMPLE_PAGES)]
+        total = sum(len(doc[index].get_text().strip()) for index in indexes)
         return total / len(indexes) >= TEXT_LAYER_THRESHOLD
 
 

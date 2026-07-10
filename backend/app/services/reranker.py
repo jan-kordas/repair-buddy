@@ -43,7 +43,7 @@ class Reranker:
         raw_scores = model.predict(pairs)
         for chunk, raw in zip(chunks, raw_scores):
             chunk["relevance_score"] = round(self._to_score(float(raw)), 6)
-        ranked = sorted(chunks, key=lambda c: c["relevance_score"], reverse=True)
+        ranked = sorted(chunks, key=lambda chunk: chunk["relevance_score"], reverse=True)
         return ranked[:top_k]
 
 
@@ -59,8 +59,8 @@ async def _llamacpp_rerank(query: str, chunks: list[dict], top_k: int) -> list[d
             timeout=60,
         )
     response.raise_for_status()
-    # llama.cpp returns raw logits; sigmoid puts them on the same [0,1] scale
-    # as the local CrossEncoder so relevance_threshold means the same thing.
+    # llama.cpp returns raw logits, sigmoid puts them on the same [0,1] scale
+    # as the local CrossEncoder
     for result in response.json()["results"]:
         raw_score = float(result["relevance_score"])
         chunks[result["index"]]["relevance_score"] = round(_sigmoid(raw_score), 6)
@@ -69,8 +69,6 @@ async def _llamacpp_rerank(query: str, chunks: list[dict], top_k: int) -> list[d
 
 
 async def rerank_and_filter(query: str, chunks: list[dict], top_k: int) -> list[dict]:
-    # "off" and the llamacpp-unreachable fallback keep Qdrant vector order
-    # without per-chunk scores, so relevance_threshold can't apply there.
     if not chunks or settings.reranker_mode == "off":
         return chunks[:top_k]
     if settings.reranker_mode == "llamacpp":
@@ -78,12 +76,12 @@ async def rerank_and_filter(query: str, chunks: list[dict], top_k: int) -> list[
             ranked = await _llamacpp_rerank(query, chunks, top_k)
         except httpx.HTTPError as error:
             log.warning(
-                "llama.cpp reranker at %s:%d unavailable (%s) — falling back to vector order.",
+                "llama.cpp reranker at %s:%d unavailable (%s), falling back to vector order",
                 settings.llamacpp_host, settings.llamacpp_port, error,
             )
+            # no scores in the fallback, so the threshold cannot apply
             return chunks[:top_k]
     else:
-        # Off the event loop — otherwise torch inference blocks health checks
-        # and other requests for the whole duration of the rerank.
+        # in a thread, torch inference would block the event loop
         ranked = await asyncio.to_thread(reranker.rerank, query, chunks, top_k)
     return [chunk for chunk in ranked if chunk["relevance_score"] >= settings.relevance_threshold]

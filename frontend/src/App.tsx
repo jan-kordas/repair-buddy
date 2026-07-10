@@ -22,8 +22,8 @@ function saveStoredConvs(list: StoredConv[]) {
 export default function App() {
   const [conversations, setConversations] = useState<StoredConv[]>(loadStoredConvs);
   const [activeId, setActiveId] = useState<number | null>(() => {
-    const v = localStorage.getItem(ACTIVE_KEY);
-    return v ? parseInt(v, 10) : null;
+    const stored = localStorage.getItem(ACTIVE_KEY);
+    return stored ? parseInt(stored, 10) : null;
   });
   const [messages, setMessages] = useState<LocalMsg[]>([]);
   const [input, setInput] = useState('');
@@ -54,15 +54,15 @@ export default function App() {
       .then((msgs) => {
         setMessages(
           msgs
-            .filter((m) => m.role !== 'system')
-            .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, sources: m.sources })),
+            .filter((msg) => msg.role !== 'system')
+            .map((msg) => ({ role: msg.role as 'user' | 'assistant', content: msg.content, sources: msg.sources })),
         );
       })
       .catch(() => {
-        // stale id — clean up
+        // stale id, clean up
         setActiveId(null);
         localStorage.removeItem(ACTIVE_KEY);
-        const updated = conversations.filter((c) => c.id !== activeId);
+        const updated = conversations.filter((conv) => conv.id !== activeId);
         setConversations(updated);
         saveStoredConvs(updated);
       });
@@ -105,7 +105,7 @@ export default function App() {
       if (!activeId) {
         const newConv: StoredConv = { id: data.conversation_id, title: question.slice(0, 48), ts: Date.now() };
         setConversations((prev) => {
-          const updated = [newConv, ...prev.filter((c) => c.id !== data.conversation_id)].slice(0, 20);
+          const updated = [newConv, ...prev.filter((conv) => conv.id !== data.conversation_id)].slice(0, 20);
           saveStoredConvs(updated);
           return updated;
         });
@@ -123,14 +123,14 @@ export default function App() {
     }
   }, [input, loading, activeId]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(); }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 180) + 'px';
+  const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(event.target.value);
+    event.target.style.height = 'auto';
+    event.target.style.height = Math.min(event.target.scrollHeight, 180) + 'px';
   };
 
   const suggestions = [
@@ -158,17 +158,17 @@ export default function App() {
               <h1>Asystent mechanika</h1>
               <p>Specjalizuję się w VW Golf IV i Skoda Octavia I.<br />Opisz usterkę lub zadaj pytanie techniczne.</p>
               <div className="suggestions-grid">
-                {suggestions.map((s) => (
-                  <button key={s} className="suggestion-chip" onClick={() => { setInput(s); textareaRef.current?.focus(); }}>
-                    {s}
+                {suggestions.map((suggestion) => (
+                  <button key={suggestion} className="suggestion-chip" onClick={() => { setInput(suggestion); textareaRef.current?.focus(); }}>
+                    {suggestion}
                   </button>
                 ))}
               </div>
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <ChatMessage key={i} role={msg.role} content={msg.content} sources={msg.sources} />
+          {messages.map((msg, index) => (
+            <ChatMessage key={index} role={msg.role} content={msg.content} sources={msg.sources} />
           ))}
 
           {loading && (

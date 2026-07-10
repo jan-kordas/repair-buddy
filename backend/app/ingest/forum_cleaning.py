@@ -1,5 +1,4 @@
 import re
-import unicodedata
 
 # Elektroda video player boilerplate injected when posts contain embedded videos
 _VIDEO_PLAYER = re.compile(
@@ -30,7 +29,6 @@ _QUOTE_HEADER = re.compile(
 
 # Decorative / semantic-noise emoji (keep alphanumeric punctuation)
 def _is_noise_char(ch: str) -> bool:
-    cat = unicodedata.category(ch)
     cp = ord(ch)
     # Emoji ranges
     if 0x1F300 <= cp <= 0x1FFFF:

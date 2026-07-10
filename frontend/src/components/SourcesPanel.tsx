@@ -33,8 +33,8 @@ export function SourcesPanel({ sources }: Props) {
 
       {open && (
         <div className="sources-grid">
-          {sources.map((src, i) => (
-            <div key={i} className="source-card">
+          {sources.map((src, index) => (
+            <div key={index} className="source-card">
               <div className="source-card-header">
                 {src.source.startsWith('http') ? (
                   <a href={src.source} target="_blank" rel="noopener noreferrer" className="source-link">

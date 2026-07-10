@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db import SessionLocal
 from app.models import ChunkParent
 
 EMBEDDING_MODEL = settings.ollama_embedding_model
@@ -204,7 +203,7 @@ def build_user_prompt(question: str, chunks: list[dict]) -> str:
 async def generate_answer(
     user_prompt: str, history: list[dict] | None = None
 ) -> str:
-    from app.services.llm import provider
+    from app.services.generation import provider
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if history:
@@ -248,14 +247,3 @@ def extract_sources(chunks: list[dict]) -> list[dict]:
         }
         for chunk in chunks
     ]
-
-
-async def ask(question: str, qdrant: QdrantClient) -> tuple[str, list[dict]]:
-    async with httpx.AsyncClient() as client:
-        vector = await embed_question(question, client)
-    async with SessionLocal() as session:
-        chunks = await search_context(qdrant, session, vector)
-    user_prompt = build_user_prompt(question, chunks)
-    answer = await generate_answer(user_prompt)
-    sources = extract_sources(chunks)
-    return answer, sources
